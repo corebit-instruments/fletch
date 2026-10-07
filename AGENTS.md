@@ -9,10 +9,11 @@ Use `corebit:engineering-tasks` for Epic/ET work and
 and a sibling Agentic checkout exists, read
 `../agentic/plugin/skills/corebit/engineering-tasks/SKILL.md` and
 `../agentic/plugin/skills/corebit/verification-workflow/SKILL.md`.
-Use the `corebit` CLI for local workflow operations and authorized GitHub writes.
+Always run the installed `corebit` executable directly for local workflow
+operations and authorized GitHub writes.
 
-Repository configuration lives in [corebit.toml](corebit.toml). Installation,
-the tested toolkit pin, and validation facts are in
+Repository configuration lives in [corebit.toml](corebit.toml). Installation
+requirements and validation facts are in
 [fletch-validation.md](docs/agents/fletch-validation.md); tracker ownership is in
 [issue-tracker.md](docs/agents/issue-tracker.md). Local task briefs belong at
 `.agent/task-brief.json`, which is ignored by Git.

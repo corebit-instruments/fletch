@@ -10,16 +10,13 @@ The committed Codex, Claude Code, and OpenCode settings enable the plugin;
 machine installation and Codex project trust remain prerequisites. Start the
 harness at the repository root; `CLAUDE.md` points to `AGENTS.md`.
 
-Fletch adoption uses Agentic commit
-`cfa8ce0ee79d82b00039e36e970025b5d74e9ac9`, the same source pin as firmware
-#118. Its package version is still `0.1.0`; the revision identifies the tested
-implementation. The original `v0.1.0` release lacks root `corebit.toml` support.
-Until a release includes it, use a checkout at the exact pin and run from the
-Fletch root:
+Run the installed `corebit` executable directly from the Fletch root. It must
+support the repository's root `corebit.toml` configuration. Update the installed
+CLI with `corebit update`; invoke workflow commands directly as shown below:
 
 ```text
-uv run --isolated --project <agentic-checkout>/tools --python 3.13 corebit show preflight --repo . --project https://github.com/orgs/corebit-instruments/projects/1 --owner corebit-instruments/fletch --pr-base main --json
-uv run --isolated --project <agentic-checkout>/tools --python 3.13 corebit local validate --json
+corebit show preflight --repo . --project https://github.com/orgs/corebit-instruments/projects/1 --owner corebit-instruments/fletch --pr-base main --json
+corebit local validate --json
 ```
 
 `corebit.toml` owns repository facts. New work branches and PRs use `main`,
@@ -29,7 +26,7 @@ Branch policy is independent of toolkit installation.
 
 Validation results and limitations belong on the
 [Fletch ET](https://github.com/corebit-instruments/fletch/issues/6) and its PR.
-Revalidate affected checks when the toolkit pin changes. Local briefs and logs
+Revalidate affected checks when Corebit is updated. Local briefs and logs
 live under ignored `.agent/`.
 The canonical CLI guidance owns the handoff format and resume procedure.
 
@@ -55,10 +52,12 @@ Prerequisites are a Rust toolchain supporting edition 2024, rustfmt, Clippy,
 the native host linker/SDK, and access to the crates resolved by `Cargo.lock`.
 The Rust/Cargo `1.97.1` attempt on Windows/MSVC fails in the locked view
 dependency `ethnum 1.5.2` with E0512 (`TryFromIntError` changed size). An
-installed Rust `1.92` toolchain provides the alternate validation route:
+installed Rust `1.92` toolchain provides the alternate validation route.
+In PowerShell, select it for the current process and run Corebit directly:
 
-```text
-rustup run 1.92 uv run --isolated --project <agentic-checkout>/tools --python 3.13 corebit local validate --json
+```powershell
+$env:RUSTUP_TOOLCHAIN = "1.92"
+corebit local validate --json
 ```
 
 No repository toolchain override, dependency update or registry patch is part
