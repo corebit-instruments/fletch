@@ -2,14 +2,20 @@
 
 ## Shared Instructions
 
-Follow shared instructions in `../agent-instructions/AGENTS.md`.
-Follow Modulo workspace instructions in `../agent-instructions/workspaces/modulo.md`.
+Shared workflow policy comes from the `corebit` plugin, maintained in
+[`corebit-instruments/agentic`](https://github.com/corebit-instruments/agentic).
+Use `corebit:engineering-tasks` for Epic/ET work and
+`corebit:verification-workflow` for validation. If the plugin is unavailable
+and a sibling Agentic checkout exists, read
+`../agentic/plugin/skills/corebit/engineering-tasks/SKILL.md` and
+`../agentic/plugin/skills/corebit/verification-workflow/SKILL.md`.
+Use the `corebit` CLI for local workflow operations and authorized GitHub writes.
 
-These shared instruction files live in the sibling
-[`modulo-org/agent-instructions`](https://github.com/modulo-org/agent-instructions)
-repository when this repo is checked out as part of the Modulo workspace. For a
-standalone checkout without that sibling repository, follow the local
-instructions below and treat the shared references as unavailable.
+Repository configuration lives in [corebit.toml](corebit.toml). Installation,
+the tested toolkit pin, and validation facts are in
+[fletch-validation.md](docs/agents/fletch-validation.md); tracker ownership is in
+[issue-tracker.md](docs/agents/issue-tracker.md). Local task briefs belong at
+`.agent/task-brief.json`, which is ignored by Git.
 
 Local instructions in this file override shared and workspace instructions.
 
@@ -36,6 +42,7 @@ library for HIL and test-engineering data.
 ## Commands
 
 Run commands from the repository root unless a task is scoped to a specific file or example.
+`corebit local validate` runs the checks declared in `corebit.toml`.
 
 - Format: `cargo fmt`
 - Test: `cargo test`
@@ -45,6 +52,10 @@ Run commands from the repository root unless a task is scoped to a specific file
 
 ## Branching and Pull Requests
 
+- Use `corebit local branch`, `corebit local commit`, and `corebit remote pr`.
+- `corebit.toml` preserves `staging` as the intended PR base. GitHub's default
+  branch is `main`; PRs into `staging` reference ETs with `--refs` and do not
+  automatically close them.
 - If this standalone repository does not have a `staging` branch, open pull requests against its configured default branch.
 
 ## Knowledge Base
