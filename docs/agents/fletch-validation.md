@@ -18,19 +18,19 @@ Until a release includes it, use a checkout at the exact pin and run from the
 Fletch root:
 
 ```text
-uv run --isolated --project <agentic-checkout>/tools --python 3.13 corebit show preflight --repo . --project https://github.com/orgs/corebit-instruments/projects/1 --owner corebit-instruments/fletch --pr-base staging --json
+uv run --isolated --project <agentic-checkout>/tools --python 3.13 corebit show preflight --repo . --project https://github.com/orgs/corebit-instruments/projects/1 --owner corebit-instruments/fletch --pr-base main --json
 uv run --isolated --project <agentic-checkout>/tools --python 3.13 corebit local validate --json
 ```
 
-`corebit.toml` owns repository facts. The intended PR base is `staging`, while
-GitHub's live default branch is `main`. Use `remote pr --refs 6` for this ET's
-PR into `staging`; `--closes` applies only to the GitHub default branch.
-If `staging` is deliberately removed, update `default_base` to the verified
-default branch. Branch policy is independent of toolkit installation.
+`corebit.toml` owns repository facts. New work branches and PRs use `main`,
+matching GitHub's live default branch. Use `remote pr --closes 6` for this ET's
+PR so GitHub links the issue and closes it when the PR merges into `main`.
+Branch policy is independent of toolkit installation.
 
-[Fletch #6 evidence](fletch-6-validation.md) records scenarios, exact revisions,
-results, and pending platform combinations. Revalidate affected evidence when
-the toolkit pin changes. Local briefs and logs live under ignored `.agent/`.
+Validation results and limitations belong on the
+[Fletch ET](https://github.com/corebit-instruments/fletch/issues/6) and its PR.
+Revalidate affected checks when the toolkit pin changes. Local briefs and logs
+live under ignored `.agent/`.
 The canonical CLI guidance owns the handoff format and resume procedure.
 
 ## Rust checks
@@ -61,8 +61,8 @@ installed Rust `1.92` toolchain provides the alternate validation route:
 rustup run 1.92 uv run --isolated --project <agentic-checkout>/tools --python 3.13 corebit local validate --json
 ```
 
-The evidence records both attempts separately. No repository toolchain
-override, dependency update or registry patch is part of this adoption.
+No repository toolchain override, dependency update or registry patch is part
+of this adoption.
 Fletch declares no embedded target or device runner. These commands exercise
 a local library and do not require a connected Modulo board. They preserve
 telemetry schema, sparse-row behavior, storage paths, metadata ownership and

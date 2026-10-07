@@ -1,4 +1,4 @@
-default_base = "staging"
+default_base = "main"
 
 [[check]]
 name = "rust-format"

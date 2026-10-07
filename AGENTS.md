@@ -53,10 +53,9 @@ Run commands from the repository root unless a task is scoped to a specific file
 ## Branching and Pull Requests
 
 - Use `corebit local branch`, `corebit local commit`, and `corebit remote pr`.
-- `corebit.toml` preserves `staging` as the intended PR base. GitHub's default
-  branch is `main`; PRs into `staging` reference ETs with `--refs` and do not
-  automatically close them.
-- If this standalone repository does not have a `staging` branch, open pull requests against its configured default branch.
+- `corebit.toml` sets `main` as the branch for new work and the default PR base,
+  matching GitHub's default branch. Use `--closes` for completed ETs so GitHub
+  links them to the PR and closes them when it merges into `main`.
 
 ## Knowledge Base
 
