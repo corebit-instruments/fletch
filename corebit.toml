@@ -1,0 +1,27 @@
+default_base = "main"
+
+[[check]]
+name = "rust-format"
+run = ["cargo", "fmt", "--all", "--", "--check"]
+
+[[check]]
+name = "rust-tests"
+run = ["cargo", "test", "--locked"]
+
+[[check]]
+name = "rust-view-check"
+run = ["cargo", "check", "--features", "view", "--locked"]
+
+[[check]]
+name = "rust-view-tests"
+run = ["cargo", "test", "--features", "view", "--locked"]
+
+[[check]]
+name = "rust-lint"
+run = ["cargo", "clippy", "--all-targets", "--all-features", "--locked"]
+
+[tasks]
+project_number = 1
+project_owner = "corebit-instruments"
+default_repo = "corebit-instruments/fletch"
+default_status = "Todo"
