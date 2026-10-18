@@ -2,17 +2,18 @@
 
 ## Shared Instructions
 
-Shared workflow policy comes from the `corebit` plugin, maintained in
+Shared workflow policy comes from the `agentic` plugin, maintained in
 [`corebit-instruments/agentic`](https://github.com/corebit-instruments/agentic).
-Use `corebit:engineering-tasks` for Epic/ET work and
-`corebit:verification-workflow` for validation. If the plugin is unavailable
+Use `agentic:engineering-tasks` for Epic/ET work and
+`agentic:verification-workflow` for validation. If the plugin is unavailable
 and a sibling Agentic checkout exists, read
-`../agentic/plugin/skills/corebit/engineering-tasks/SKILL.md` and
-`../agentic/plugin/skills/corebit/verification-workflow/SKILL.md`.
-Always run the installed `corebit` executable directly for local workflow
+`plugins/agentic/skills/workflows/engineering-tasks/SKILL.md` and
+`plugins/agentic/skills/workflows/verification-workflow/SKILL.md` within that checkout.
+Use the companion `corebit` plugin for Corebit company and Modulo context.
+Always run the installed `agentic` executable directly for local workflow
 operations and authorized GitHub writes.
 
-Repository configuration lives in [corebit.toml](corebit.toml). Installation
+Repository configuration lives in [agentic.toml](agentic.toml). Installation
 requirements and validation facts are in
 [fletch-validation.md](docs/agents/fletch-validation.md); tracker ownership is in
 [issue-tracker.md](docs/agents/issue-tracker.md). Local task briefs belong at
@@ -43,7 +44,7 @@ library for HIL and test-engineering data.
 ## Commands
 
 Run commands from the repository root unless a task is scoped to a specific file or example.
-`corebit local validate` runs the checks declared in `corebit.toml`.
+`agentic local validate` runs the checks declared in `agentic.toml`.
 
 - Format: `cargo fmt`
 - Test: `cargo test`
@@ -53,8 +54,8 @@ Run commands from the repository root unless a task is scoped to a specific file
 
 ## Branching and Pull Requests
 
-- Use `corebit local branch`, `corebit local commit`, and `corebit remote pr`.
-- `corebit.toml` sets `main` as the branch for new work and the default PR base,
+- Use `agentic local branch`, `agentic local commit`, and `agentic remote pr`.
+- `agentic.toml` sets `main` as the branch for new work and the default PR base,
   matching GitHub's default branch. Use `--closes` for completed ETs so GitHub
   links them to the PR and closes them when it merges into `main`.
 

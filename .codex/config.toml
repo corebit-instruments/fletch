@@ -1,2 +1,5 @@
-[plugins."corebit@agentic"]
+[plugins."agentic@corebit-instruments"]
+enabled = true
+
+[plugins."corebit@corebit-instruments"]
 enabled = true

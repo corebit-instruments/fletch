@@ -1,5 +1,6 @@
 {
   "enabledPlugins": {
-    "corebit@agentic": true
+    "agentic@corebit-instruments": true,
+    "corebit@corebit-instruments": true
   }
 }
