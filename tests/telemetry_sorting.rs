@@ -256,6 +256,7 @@ async fn multi_source_views_require_explicit_run_id() -> Result<()> {
 
 #[cfg(feature = "view")]
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "polars cannot read parquet 60's IEEE_754_TOTAL_ORDER column order on float columns (pola-rs/polars#27893); re-enable with corebit-instruments/fletch#11"]
 async fn view_joins_sources_for_explicit_run() -> Result<()> {
     let dir = tempdir()?;
     let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
