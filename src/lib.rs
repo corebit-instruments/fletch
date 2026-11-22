@@ -1,4 +1,5 @@
 mod config;
+mod rows;
 mod sink;
 mod stream;
 mod types;
@@ -10,9 +11,10 @@ pub type Result<T> = anyhow::Result<T>;
 
 pub use config::*;
 pub use fletch_derive::FletchSchema;
+pub use rows::*;
 pub use sink::*;
 pub use stream::*;
-pub use types::FletchType;
+pub use types::{FletchType, RowValue};
 #[cfg(feature = "view")]
 pub use view::*;
 pub use workspace::*;

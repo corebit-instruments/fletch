@@ -11,7 +11,7 @@
 
 ## Data And Storage Practices
 
-- Treat `timestamp_ns` as the stable leading column in generated telemetry schemas.
+- Treat `timestamp_ns` as the stable leading column in wide telemetry schemas. Row streams have only their declared columns.
 - Preserve stream names from dynamic builder names or `FletchSchema` struct identifiers unless a deliberate migration path is added.
 - Keep local workspace roots represented as filesystem paths at public boundaries.
 - Preserve the default layout semantics: run, stream, and unique Parquet file names.
@@ -23,8 +23,9 @@
 ## Ingestion And View Practices
 
 - Keep dynamic streams typed through `FletchType` instead of ad hoc values.
-- Maintain sparse row behavior: multiple field writes at the same timestamp produce one row, missing fields remain null, and duplicate field writes at a timestamp use the latest value.
-- Keep batches sorted by `timestamp_ns` before writing.
+- Maintain sparse row behavior in wide streams: multiple field writes at the same timestamp produce one row, missing fields remain null, and duplicate field writes at a timestamp use the latest value.
+- Keep wide-stream batches sorted by `timestamp_ns` before writing.
+- Keep row streams in append order: one row per append, no merging, overwriting or sorting, and no partial row written when an append is rejected.
 - Ensure empty streams can close cleanly without writing Parquet files.
 - Keep the Polars-backed view layer behind the `view` feature.
 - Preserve run filtering by `run_id` so views do not accidentally cross runs.

@@ -28,16 +28,18 @@ library for HIL and test-engineering data.
 
 - `FletchStreamBuilder` builds dynamic ingestion streams backed by Apache Arrow builders.
 - `Stream<T>` and `#[derive(FletchSchema)]` provide a typed facade for static schemas.
+- `FletchRowStreamBuilder` builds long-format row streams: declared columns, one row per append, no timestamp key.
 - `FletchWorkspace` owns the local root folder and storage layout.
 - Parquet file-level key/value metadata stores run and user-provided metadata.
 - The optional `view` feature enables Polars-backed analytical views and time-aligned joins.
 
 ## Data Rules
 
-- Keep `timestamp_ns` as the stable leading column in generated telemetry schemas.
+- Keep `timestamp_ns` as the stable leading column in wide (`FletchStream`) telemetry schemas.
 - Keep stream names, storage paths, and file-level metadata aligned with the written Parquet files.
 - Keep Fletch-owned `fletch.*` metadata authoritative over user-provided metadata.
-- Preserve sparse-row semantics: same-timestamp field writes coalesce into one row, missing fields remain null, and duplicate field writes keep the latest value.
+- Preserve sparse-row semantics in wide streams: same-timestamp field writes coalesce into one row, missing fields remain null, and duplicate field writes keep the latest value.
+- Row streams (`FletchRowStream`) have no implicit `timestamp_ns`: each append is one row, kept in append order, never merged, overwritten or sorted.
 - Keep local workspace roots as filesystem paths at public boundaries.
 - Keep the Polars view layer behind the `view` feature.
 

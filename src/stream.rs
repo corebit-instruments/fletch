@@ -12,7 +12,7 @@ use crate::sink::BackgroundSink;
 use crate::types::{ChannelBuilder, FletchType, FletchValue};
 use crate::workspace::FletchWorkspace;
 
-const DEFAULT_BATCH_CAPACITY: usize = 100_000;
+pub(crate) const DEFAULT_BATCH_CAPACITY: usize = 100_000;
 
 pub trait FletchSchema {
     fn stream_name() -> &'static str;
@@ -52,10 +52,10 @@ impl<T> Stream<T> {
 }
 
 #[derive(Clone)]
-struct ChannelSpec {
-    name: String,
-    data_type: arrow::datatypes::DataType,
-    builder_factory: fn(usize) -> ChannelBuilder,
+pub(crate) struct ChannelSpec {
+    pub(crate) name: String,
+    pub(crate) data_type: arrow::datatypes::DataType,
+    pub(crate) builder_factory: fn(usize) -> ChannelBuilder,
 }
 
 pub struct FletchStreamBuilder {
