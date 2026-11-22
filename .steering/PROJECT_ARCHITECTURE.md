@@ -13,7 +13,8 @@
 - `src/workspace.rs`: `FletchWorkspace`, workspace builders, and local root path handling.
 - `src/config.rs`: storage config, output Parquet path generation, and file-level metadata assembly.
 - `src/stream.rs`: `FletchStreamBuilder`, dynamic `FletchStream`, typed `Stream<T>`, and sparse-row batching.
-- `src/types.rs`: `FletchType` trait and supported Rust-to-Arrow field mappings.
+- `src/rows.rs`: `FletchRowStreamBuilder` and long-format `FletchRowStream`, which share the sink, config and Arrow builders.
+- `src/types.rs`: `FletchType` trait, borrowed `RowValue` cells, and supported Rust-to-Arrow field mappings.
 - `src/sink.rs`: background Arrow-to-Parquet writer and Parquet file metadata writing.
 - `fletch-derive/`: derive macro for static `Stream<T>` schemas.
 - `src/view.rs`: optional Polars LazyFrame scans, metadata/run filtering, source selection, ASOF joins, relative timestamps, and CSV/Parquet exports.
@@ -25,7 +26,7 @@
 - A workspace is a local root folder.
 - A run is identified by a caller-provided `run_id`.
 - A stream maps to one stream name and a dynamic list of registered channels.
-- Arrow schemas start with `timestamp_ns`, followed by nullable telemetry fields.
+- Wide-stream Arrow schemas start with `timestamp_ns`, followed by nullable telemetry fields. Row-stream schemas hold only their declared nullable columns.
 - Parquet files are written under `runs/{run_id}/{stream_name}/{uuid}.parquet`.
 - Run and user metadata is stored as Parquet file-level key/value metadata.
 
@@ -35,6 +36,7 @@
 - Field writes sharing the same timestamp are coalesced into one pending row.
 - When the timestamp changes, the pending row is committed and may be flushed according to the batch capacity.
 - Before each batch is sent to the sink, rows are sorted by `timestamp_ns`.
+- Row streams append one row per call, flush full batches in append order without sorting, and reject a mismatched row before writing any of it.
 - `BackgroundSink` writes batches on a worker thread and writes file-level metadata into the Parquet footer.
 - Empty streams close without creating Parquet files.
 

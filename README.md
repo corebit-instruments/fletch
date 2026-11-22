@@ -22,8 +22,10 @@ root/
         <uuid>.parquet
 ```
 
-The `timestamp_ns` column is always first. Channel columns follow in the order
-they were registered. Run metadata such as `fletch.run_id`,
+In a wide stream the `timestamp_ns` column is always first, and channel columns
+follow in the order they were registered. A row stream has only the columns it
+declares, in declaration order.
+Both kinds of stream share this layout and file metadata. Run metadata such as `fletch.run_id`,
 `fletch.stream_name`, `fletch.created_at_ns`, and user-provided metadata is
 stored as Parquet file-level key/value metadata.
 
@@ -55,6 +57,61 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 ```
+
+## Row Streams
+
+A wide stream (above) is keyed by one `timestamp_ns` clock: writes that share a
+timestamp merge into one row, a repeated channel write at that timestamp
+overwrites the first, and each batch is sorted by `timestamp_ns`.
+
+Use a row stream instead when records do not share one clock, for example
+records from several modules each counting its own ticks, or channels at very
+different rates that would leave a wide table mostly null. A row stream is
+long format: it has the typed columns you declare and no implicit
+`timestamp_ns`, and each `append` writes exactly one row. Rows are written in
+append order, across batches, and are never merged, overwritten or sorted.
+
+```rust
+use fletch::{FletchRowStreamBuilder, FletchWorkspace, RowValue};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let workspace = FletchWorkspace::builder()
+        .root("C:/fletch_warehouse")
+        .build()?;
+
+    let mut records = FletchRowStreamBuilder::new(&workspace, "DaqRecords")
+        .column::<u8>("source")?
+        .column::<String>("channel")?
+        .column::<u64>("ticks")?
+        .column::<i64>("raw")?
+        .column::<f64>("value")?
+        .column::<u64>("sequence")?
+        .metadata("modulo.test_id", "daq-v1")
+        .build("run_001")
+        .await?;
+
+    // One value per declared column, in order; `None` or `RowValue::Null`
+    // writes a null.
+    let value: Option<f64> = None;
+    records.append(&[
+        1_u8.into(),
+        "ain0".into(),
+        48_000_u64.into(),
+        1024_i64.into(),
+        value.into(),
+        7_u64.into(),
+    ])?;
+    records.close()?;
+
+    Ok(())
+}
+```
+
+Every column is nullable. `append` checks the whole row (its length and each
+value's type) before writing anything, so a rejected row leaves the stream
+unchanged. Values are borrowed, strings included, so appending a row does not
+allocate.
 
 ## Derived Streams
 
