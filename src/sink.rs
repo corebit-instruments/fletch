@@ -9,6 +9,7 @@ use std::fs::File;
 use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle};
 
+use crate::column_order::write_type_order_for_floats;
 use crate::config::FletchConfig;
 
 pub struct BackgroundSink {
@@ -48,7 +49,8 @@ impl BackgroundSink {
             }
 
             if let Some(writer) = writer {
-                writer.close()?;
+                let metadata = writer.close()?;
+                write_type_order_for_floats(&config.file_path, &metadata)?;
             }
 
             Ok(())

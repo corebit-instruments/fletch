@@ -178,9 +178,13 @@ fn main() -> anyhow::Result<()> {
 Without `run_id` a view reads every run. Without `order_by` rows keep their
 stored order: run by run, file by file, and append order within a file. Rows
 that tie in `order_by` keep that stored order. A view can be collected into a
-`DataFrame`, taken as a `LazyFrame`, or written to CSV or Parquet. Until
-[fletch#11](https://github.com/corebit-instruments/fletch/issues/11) lands, a
-view, typed or not, cannot read the `f32` or `f64` columns Parquet 60 writes.
+`DataFrame`, taken as a `LazyFrame`, or written to CSV or Parquet.
+
+Parquet 60 marks `f32` and `f64` columns with the IEEE 754 total-order column
+order, which Polars cannot yet read
+([pola-rs/polars#27893](https://github.com/pola-rs/polars/issues/27893)). Fletch
+rewrites those columns' order to the type-defined order every Parquet writer
+used before, once a file closes, so views and other readers open them.
 
 ## Typed Views
 

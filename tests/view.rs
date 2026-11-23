@@ -236,7 +236,6 @@ async fn view_reads_every_non_float_column_type() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "polars cannot read parquet 60's IEEE_754_TOTAL_ORDER column order on float columns (pola-rs/polars#27893); re-enable with corebit-instruments/fletch#11"]
 async fn view_reads_float_columns() -> Result<()> {
     let dir = tempdir()?;
     let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
