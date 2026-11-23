@@ -64,28 +64,7 @@ impl<'a> FletchViewBuilder<'a> {
     }
 
     pub fn build(self) -> Result<FletchView> {
-        let files = parquet_files_for_stream(
-            self.workspace.root(),
-            self.run_id.as_deref(),
-            &self.stream_name,
-        )?;
-        if files.is_empty() {
-            return Err(anyhow!(
-                "no parquet files found for stream {}",
-                self.stream_name
-            ));
-        }
-
-        let mut frames = Vec::with_capacity(files.len());
-        for file in files {
-            let frame = LazyFrame::scan_parquet(
-                PlRefPath::new(file.path.to_string_lossy().as_ref()),
-                ScanArgsParquet::default(),
-            )?
-            .with_columns([lit(file.run_id).alias("run_id")]);
-            frames.push(frame);
-        }
-        let mut frame = concat(frames, Default::default())?;
+        let mut frame = scan_stream(self.workspace, self.run_id.as_deref(), &self.stream_name)?;
 
         for predicate in self.filters {
             frame = frame.filter(predicate);
@@ -104,6 +83,30 @@ impl<'a> FletchViewBuilder<'a> {
 
         Ok(FletchView { lazy_frame: frame })
     }
+}
+
+/// Scans every Parquet file of one stream, for one run or every run, and adds
+/// a `run_id` column from the storage layout.
+pub(crate) fn scan_stream(
+    workspace: &FletchWorkspace,
+    run_id: Option<&str>,
+    stream_name: &str,
+) -> Result<LazyFrame> {
+    let files = parquet_files_for_stream(workspace.root(), run_id, stream_name)?;
+    if files.is_empty() {
+        return Err(anyhow!("no parquet files found for stream {}", stream_name));
+    }
+
+    let mut frames = Vec::with_capacity(files.len());
+    for file in files {
+        let frame = LazyFrame::scan_parquet(
+            PlRefPath::new(file.path.to_string_lossy().as_ref()),
+            ScanArgsParquet::default(),
+        )?
+        .with_columns([lit(file.run_id).alias("run_id")]);
+        frames.push(frame);
+    }
+    Ok(concat(frames, Default::default())?)
 }
 
 fn parquet_files_for_stream(

@@ -89,13 +89,28 @@ typed by the field; an `Option<T>` field writes null for `None`. There is no
 implicit timestamp: a time column, such as `ticks` below, is a field like any
 other. Each `write` appends one struct value as one row, borrowing its fields.
 
-```rust
-use fletch::{FletchSchema, FletchWorkspace, Stream};
+A fieldless enum with `#[derive(FletchEnum)]` is a field type too, stored as a
+string column holding the variant's name: its identifier, a
+`#[fletch(rename_all = "...")]` rule on the enum, or a per-variant
+`#[fletch(rename = "...")]`. `#[fletch(stream = "Name")]` puts the stream name
+on the struct; without it, name the stream with `Stream::<T>::builder_named`.
 
-#[derive(FletchSchema)]
+```rust
+use fletch::{FletchEnum, FletchSchema, FletchWorkspace, Stream};
+
+#[derive(Clone, Copy, Debug, PartialEq, FletchEnum)]
+#[fletch(rename_all = "SCREAMING_SNAKE_CASE")]
+enum Channel {
+    AnIn1, // stored as "AN_IN1"
+    #[fletch(rename = "DIG_3")]
+    DigIn3,
+}
+
+#[derive(Debug, FletchSchema)]
+#[fletch(stream = "DaqRecords")]
 struct DaqRecord {
     source: u8,
-    channel: String,
+    channel: Channel,
     ticks: u64,
     raw: i64,
     value: Option<f64>,
@@ -107,13 +122,13 @@ async fn main() -> anyhow::Result<()> {
         .root("C:/fletch_warehouse")
         .build()?;
 
-    let mut records = Stream::<DaqRecord>::builder(&workspace, "DaqRecords")
+    let mut records = Stream::<DaqRecord>::builder(&workspace)
         .metadata("modulo.test_id", "daq-v1")
         .build("run_001")
         .await?;
     records.write(&DaqRecord {
         source: 1,
-        channel: "ain0".to_string(),
+        channel: Channel::AnIn1,
         ticks: 48_000,
         raw: 1024,
         value: None,
@@ -124,9 +139,11 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-Field types are the column types above, or an `Option` of one; any other field
-type is a compile error. A derived stream is a row stream underneath, with the
-same layout, metadata and append-order rules.
+Field types are the column types above, a `FletchEnum`, or an `Option` of one;
+any other field type, and an enum variant that carries data, is a compile
+error. A derived stream is a row stream underneath, with the same layout,
+metadata and append-order rules. An enum is also a dynamic column type:
+`.column::<Channel>("channel")` and `Channel::AnIn1.into()`.
 
 ## Views
 
@@ -163,7 +180,47 @@ stored order: run by run, file by file, and append order within a file. Rows
 that tie in `order_by` keep that stored order. A view can be collected into a
 `DataFrame`, taken as a `LazyFrame`, or written to CSV or Parquet. Until
 [fletch#11](https://github.com/corebit-instruments/fletch/issues/11) lands, a
-view cannot read the `f32` or `f64` columns Parquet 60 writes.
+view, typed or not, cannot read the `f32` or `f64` columns Parquet 60 writes.
+
+## Typed Views
+
+For a `FletchSchema` struct, `View<T>` reads a stream back as `T` values. The
+derive generates one typed column handle per field, `DaqRecord::TICKS` being a
+`Column<u64>`, whose `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `between`, `is_in`,
+`is_null` and `is_not_null` accept only that column's type: comparing
+`DaqRecord::SOURCE` with a string, or a misspelled column, does not compile.
+Enum columns support `eq`, `ne` and `is_in` with enum values. Predicates
+combine with `and`, `or` and `!`; `asc()` and `desc()` give ordering keys.
+
+```rust
+use fletch::{FletchWorkspace, View};
+
+fn main() -> anyhow::Result<()> {
+    let workspace = FletchWorkspace::builder()
+        .root("C:/fletch_warehouse")
+        .build()?;
+
+    let records: Vec<DaqRecord> = View::<DaqRecord>::builder(&workspace)
+        .run_id("run_001")
+        .filter(DaqRecord::CHANNEL.eq(Channel::AnIn1))
+        .filter(DaqRecord::TICKS.between(1_000, 50_000).and(!DaqRecord::VALUE.is_null()))
+        .order_by([DaqRecord::SOURCE.asc(), DaqRecord::TICKS.asc()])
+        .build()?
+        .rows()?;
+    println!("{records:?}");
+
+    Ok(())
+}
+```
+
+`build` checks once that the stream's columns and types match the struct's
+fields exactly, and names the column that does not. `rows` reads nulls as
+`None`; a null in a field that is not an `Option`, or a string that names no
+enum variant, is an error naming the column. `filter_expr` takes a raw Polars
+expression for what typed predicates cannot say, and `View::<T>::builder_named`
+reads a type without `#[fletch(stream = "...")]`. A typed predicate also works
+in a string-based view through `.into()`. String-based views stay for tools
+that read streams they did not define.
 
 ## Querying with DuckDB
 

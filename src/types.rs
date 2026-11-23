@@ -1,3 +1,4 @@
+use anyhow::{Result, anyhow};
 use arrow::array::{
     ArrayRef, BooleanBuilder, Float32Builder, Float64Builder, Int32Builder, Int64Builder,
     StringBuilder, UInt8Builder, UInt16Builder, UInt32Builder, UInt64Builder,
@@ -220,10 +221,24 @@ pub trait FletchField {
 
     /// This field's value as one row cell, borrowed from the field.
     fn row_value(&self) -> RowValue<'_>;
+
+    /// Reads this field from a cell of `column`. A null is `None` for an
+    /// `Option` field and an error otherwise.
+    fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+fn null_field(column: &str) -> anyhow::Error {
+    anyhow!("column `{column}` holds a null, but its field is not an `Option`")
+}
+
+fn mismatched_field(column: &str, expected: &str, value: RowValue<'_>) -> anyhow::Error {
+    anyhow!("column `{column}` expects {expected}, got {value:?}")
 }
 
 macro_rules! fletch_field {
-    ($($ty:ty),*) => {
+    ($($ty:ty => $variant:ident),*) => {
         $(
             impl FletchField for $ty {
                 type Column = $ty;
@@ -231,18 +246,44 @@ macro_rules! fletch_field {
                 fn row_value(&self) -> RowValue<'_> {
                     (*self).into()
                 }
+
+                fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self> {
+                    match value {
+                        RowValue::$variant(value) => Ok(value),
+                        RowValue::Null => Err(null_field(column)),
+                        other => Err(mismatched_field(column, stringify!($ty), other)),
+                    }
+                }
             }
         )*
     };
 }
 
-fletch_field!(bool, u8, u16, u32, u64, i32, i64, f32, f64);
+fletch_field!(
+    bool => Bool,
+    u8 => U8,
+    u16 => U16,
+    u32 => U32,
+    u64 => U64,
+    i32 => I32,
+    i64 => I64,
+    f32 => F32,
+    f64 => F64
+);
 
 impl FletchField for String {
     type Column = String;
 
     fn row_value(&self) -> RowValue<'_> {
         RowValue::Str(self)
+    }
+
+    fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self> {
+        match value {
+            RowValue::Str(value) => Ok(value.to_string()),
+            RowValue::Null => Err(null_field(column)),
+            other => Err(mismatched_field(column, "String", other)),
+        }
     }
 }
 
@@ -251,5 +292,12 @@ impl<T: FletchType + FletchField<Column = T>> FletchField for Option<T> {
 
     fn row_value(&self) -> RowValue<'_> {
         self.as_ref().map_or(RowValue::Null, FletchField::row_value)
+    }
+
+    fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self> {
+        match value {
+            RowValue::Null => Ok(None),
+            value => T::from_row_value(value, column).map(Some),
+        }
     }
 }

@@ -28,10 +28,11 @@ test-engineering data, with optional Polars-backed views.
 
 - Fletch writes long-format row streams only, backed by Apache Arrow builders: declared columns, one row per append, no timestamp key.
 - `FletchRowStreamBuilder` declares a row stream's columns at runtime; `FletchRowStream::append` writes one row of `RowValue`s.
-- `#[derive(FletchSchema)]` (from `fletch-derive`) declares one column per struct field, and `Stream<T>::write` appends one struct value as one row on top of `FletchRowStream`.
+- `#[derive(FletchSchema)]` (from `fletch-derive`) declares one column per struct field, generates a typed `Column<T>` handle per field, and `Stream<T>::write` appends one struct value as one row on top of `FletchRowStream`. `#[fletch(stream = "Name")]` puts the stream name on the type.
+- `#[derive(FletchEnum)]` makes a fieldless enum a column type, stored as a string column of variant names (`rename`, `rename_all`).
 - `FletchWorkspace` owns the local root folder and storage layout.
 - Parquet file-level key/value metadata stores run and user-provided metadata.
-- The optional `view` feature enables Polars-backed views of one row stream, filtered and ordered by its declared columns.
+- The optional `view` feature enables Polars-backed views of one row stream, filtered and ordered by its declared columns: string-based `FletchViewBuilder` for any stream, and typed `View<T>` with typed predicates that reads rows back as `T`.
 
 ## Data Rules
 
@@ -39,6 +40,8 @@ test-engineering data, with optional Polars-backed views.
 - Keep Fletch-owned `fletch.*` metadata authoritative over user-provided metadata.
 - Row streams (`FletchRowStream`) have only their declared columns: each append is one row, kept in append order, never merged, overwritten or sorted.
 - Views never join or align streams on a shared timestamp; they filter and order by declared columns.
+- Enums are stored as strings holding the variant's name, never as integers.
+- A typed view checks the stream's schema against `T` once at build; typed reads fail on a null in a non-`Option` field or an unknown enum name, naming the column.
 - Keep local workspace roots as filesystem paths at public boundaries.
 - Keep the Polars view layer behind the `view` feature.
 
@@ -69,8 +72,9 @@ change.
 - [`docs/CODE_CONVENTIONS.md`](docs/CODE_CONVENTIONS.md): Rust style, data and
   storage practices, ingestion and view rules, and verification expectations.
 - [`docs/PROJECT_ARCHITECTURE.md`](docs/PROJECT_ARCHITECTURE.md): the crate's
-  modules, data model, row-stream ingestion (dynamic and derived), the view
-  model and Fletch's role in the Modulo workspace.
+  modules, data model, row-stream ingestion (dynamic and derived, enums
+  included), the view model (string-based and typed) and Fletch's role in the
+  Modulo workspace.
 - [`docs/agents/fletch-validation.md`](docs/agents/fletch-validation.md): agent
   tooling setup, the declared validation checks and their toolchain
   prerequisites.

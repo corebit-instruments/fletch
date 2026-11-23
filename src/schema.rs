@@ -1,18 +1,52 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use arrow::datatypes::DataType;
 use std::marker::PhantomData;
 
 use crate::rows::{FletchRowStream, FletchRowStreamBuilder};
+use crate::types::RowValue;
 use crate::workspace::FletchWorkspace;
 
 /// A Rust struct whose values are rows of a row stream, one column per field
 /// in field order. Derive it with `#[derive(FletchSchema)]` rather than
 /// implementing it by hand.
-pub trait FletchSchema {
+pub trait FletchSchema: Sized {
     /// Declares one column per field, in field order.
     fn declare_columns(builder: FletchRowStreamBuilder) -> Result<FletchRowStreamBuilder>;
 
     /// Appends this value to `stream` as one row.
     fn append_to(&self, stream: &mut FletchRowStream) -> Result<()>;
+
+    /// Each field's column name and Arrow type, in field order.
+    fn column_types() -> Vec<(&'static str, DataType)>;
+
+    /// Builds a value from one row, one cell per field in field order. A
+    /// null fills an `Option` field with `None` and is an error elsewhere.
+    fn from_row(row: &[RowValue<'_>]) -> Result<Self>;
+}
+
+/// A [`FletchSchema`] whose stream name lives on the type, set with
+/// `#[fletch(stream = "Name")]`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no stream name",
+    label = "no `#[fletch(stream = \"...\")]` on this type",
+    note = "add `#[fletch(stream = \"Name\")]` to the struct, or pass the name with `builder_named`"
+)]
+pub trait NamedSchema: FletchSchema {
+    const STREAM_NAME: &'static str;
+}
+
+/// Checks that a row passed to [`FletchSchema::from_row`] has one cell per
+/// field. Used by derived code.
+#[doc(hidden)]
+pub fn check_row_len(row: &[RowValue<'_>], fields: usize) -> Result<()> {
+    if row.len() != fields {
+        return Err(anyhow!(
+            "row has {} values, the schema has {} fields",
+            row.len(),
+            fields
+        ));
+    }
+    Ok(())
 }
 
 /// A row stream typed by a [`FletchSchema`] struct: each
@@ -22,8 +56,17 @@ pub struct Stream<T> {
     _marker: PhantomData<fn(&T)>,
 }
 
+impl<T: NamedSchema> Stream<T> {
+    /// Builds a stream named by the type's `#[fletch(stream = "Name")]`.
+    pub fn builder(workspace: &FletchWorkspace) -> StreamBuilder<T> {
+        Self::builder_named(workspace, T::STREAM_NAME)
+    }
+}
+
 impl<T: FletchSchema> Stream<T> {
-    pub fn builder(
+    /// Builds a stream with an explicit name, for types without
+    /// `#[fletch(stream = "Name")]` or to write one type to several streams.
+    pub fn builder_named(
         workspace: &FletchWorkspace,
         stream_name: impl Into<String>,
     ) -> StreamBuilder<T> {

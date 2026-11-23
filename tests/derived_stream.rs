@@ -5,7 +5,7 @@ use arrow::array::{
 };
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
-use fletch::{FletchSchema, FletchWorkspace, Stream};
+use fletch::{FletchEnum, FletchRowStreamBuilder, FletchSchema, FletchWorkspace, Stream};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use std::collections::BTreeMap;
@@ -31,6 +31,7 @@ struct AllTypes {
 }
 
 #[derive(FletchSchema)]
+#[fletch(stream = "DaqRecords")]
 struct DaqRecord {
     source: u8,
     ticks: u64,
@@ -66,7 +67,7 @@ fn column<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> &'a T {
 
 fn all_types(i: u8) -> AllTypes {
     AllTypes {
-        flag: i % 2 == 0,
+        flag: i.is_multiple_of(2),
         source: i,
         port: 1000 + u16::from(i),
         count: 10 * u32::from(i),
@@ -86,7 +87,7 @@ fn all_types(i: u8) -> AllTypes {
 async fn derived_stream_writes_one_row_per_value_with_a_column_per_field() -> Result<()> {
     let dir = tempdir()?;
     let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
-    let mut stream = Stream::<AllTypes>::builder(&workspace, "AllTypes")
+    let mut stream = Stream::<AllTypes>::builder_named(&workspace, "AllTypes")
         .batch_capacity(2)?
         .build("run_001")
         .await?;
@@ -199,7 +200,7 @@ async fn derived_stream_writes_one_row_per_value_with_a_column_per_field() -> Re
 async fn derived_stream_writes_metadata_and_raw_field_names() -> Result<()> {
     let dir = tempdir()?;
     let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
-    let mut stream = Stream::<DaqRecord>::builder(&workspace, "DaqRecords")
+    let mut stream = Stream::<DaqRecord>::builder(&workspace)
         .metadata("modulo.test_id", "daq-v1")
         .metadata_pairs([("fletch.run_id", "spoofed_run")])
         .build("run_meta")
@@ -238,11 +239,104 @@ async fn derived_stream_writes_metadata_and_raw_field_names() -> Result<()> {
 async fn empty_derived_stream_closes_without_a_file() -> Result<()> {
     let dir = tempdir()?;
     let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
-    let stream = Stream::<DaqRecord>::builder(&workspace, "DaqRecords")
+    let stream = Stream::<DaqRecord>::builder(&workspace)
         .build("run_001")
         .await?;
     stream.close()?;
     let data_dir = dir.path().join("runs").join("run_001").join("DaqRecords");
     assert_eq!(std::fs::read_dir(data_dir)?.count(), 0);
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, FletchEnum)]
+enum Plain {
+    AnIn1,
+    DigIn3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, FletchEnum)]
+#[fletch(rename_all = "SCREAMING_SNAKE_CASE")]
+enum Catalog {
+    AnIn1,
+    DigIn12,
+    #[fletch(rename = "SPECIAL")]
+    HTTPServer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, FletchEnum)]
+#[fletch(rename_all = "kebab-case")]
+enum Kebab {
+    HTTPServer,
+    AnIn1,
+}
+
+#[derive(FletchSchema)]
+#[fletch(stream = "Channels")]
+struct ChannelRecord {
+    plain: Plain,
+    catalog: Catalog,
+    kebab: Kebab,
+    maybe_catalog: Option<Catalog>,
+}
+
+#[tokio::test]
+async fn enums_are_stored_as_their_names() -> Result<()> {
+    let dir = tempdir()?;
+    let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
+    let mut stream = Stream::<ChannelRecord>::builder(&workspace)
+        .build("run_001")
+        .await?;
+    stream.write(&ChannelRecord {
+        plain: Plain::AnIn1,
+        catalog: Catalog::AnIn1,
+        kebab: Kebab::HTTPServer,
+        maybe_catalog: Some(Catalog::HTTPServer),
+    })?;
+    stream.write(&ChannelRecord {
+        plain: Plain::DigIn3,
+        catalog: Catalog::DigIn12,
+        kebab: Kebab::AnIn1,
+        maybe_catalog: None,
+    })?;
+    stream.close()?;
+
+    let batch = read_batch(&single_file(dir.path(), "run_001", "Channels")?)?;
+    for field in batch.schema().fields() {
+        assert_eq!(field.data_type(), &DataType::Utf8, "{}", field.name());
+    }
+    let names = |name: &str| {
+        let array = column::<StringArray>(&batch, name);
+        (0..array.len())
+            .map(|i| array.is_valid(i).then(|| array.value(i).to_string()))
+            .collect::<Vec<_>>()
+    };
+    let some = |values: [&str; 2]| values.map(|value| Some(value.to_string()));
+    assert_eq!(names("plain"), some(["AnIn1", "DigIn3"]));
+    assert_eq!(names("catalog"), some(["AN_IN1", "DIG_IN12"]));
+    assert_eq!(names("kebab"), some(["http-server", "an-in1"]));
+    assert_eq!(names("maybe_catalog"), [Some("SPECIAL".to_string()), None]);
+
+    assert_eq!(Catalog::from_name("DIG_IN12"), Some(Catalog::DigIn12));
+    assert_eq!(Catalog::from_name("DigIn12"), None);
+    assert_eq!(Kebab::AnIn1.name(), "an-in1");
+    Ok(())
+}
+
+#[tokio::test]
+async fn enums_are_dynamic_row_stream_columns_too() -> Result<()> {
+    let dir = tempdir()?;
+    let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
+    let mut stream = FletchRowStreamBuilder::new(&workspace, "Dynamic")
+        .column::<Catalog>("channel")?
+        .build("run_001")
+        .await?;
+    stream.append(&[Catalog::AnIn1.into()])?;
+    stream.append(&[None::<Catalog>.into()])?;
+    stream.close()?;
+
+    let batch = read_batch(&single_file(dir.path(), "run_001", "Dynamic")?)?;
+    let channels = column::<StringArray>(&batch, "channel");
+    assert_eq!(channels.value(0), "AN_IN1");
+    assert!(channels.is_null(1));
     Ok(())
 }

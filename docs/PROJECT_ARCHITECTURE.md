@@ -13,12 +13,15 @@
 - `src/workspace.rs`: `FletchWorkspace`, workspace builders, and local root path handling.
 - `src/config.rs`: storage config, output Parquet path generation, and file-level metadata assembly.
 - `src/rows.rs`: `FletchRowStreamBuilder` and long-format `FletchRowStream`, the one write path.
-- `src/schema.rs`: the `FletchSchema` trait and the typed `Stream<T>`/`StreamBuilder<T>` facade over `FletchRowStream`.
+- `src/schema.rs`: the `FletchSchema` and `NamedSchema` traits and the typed `Stream<T>`/`StreamBuilder<T>` facade over `FletchRowStream`.
+- `src/column.rs`: typed `Column<T>` handles and the values they compare with (`ColumnValue`, `OrderedColumn`).
+- `src/enums.rs`: the `FletchEnum` trait for enums stored as variant-name strings.
+- `src/typed_view.rs`: optional typed views, `View<T>` with `Predicate` and `SortKey`, schema checking, and typed row reads.
 - `src/types.rs`: `FletchType` trait, borrowed `RowValue` cells, `FletchField` (struct field types a derive accepts), and the supported Rust-to-Arrow column builders.
-- `fletch-derive/`: `#[derive(FletchSchema)]`, which declares one column per struct field and appends a value as one row.
+- `fletch-derive/`: `#[derive(FletchSchema)]`, which declares one column per struct field, appends a value as one row, reads one back and generates the column handles, and `#[derive(FletchEnum)]`.
 - `src/sink.rs`: background Arrow-to-Parquet writer and Parquet file metadata writing.
 - `src/view.rs`: optional Polars LazyFrame scans of one row stream, run filtering, column filters, ordering and selection, and CSV/Parquet exports.
-- `tests/`: integration tests for row-stream append order, nulls, column types, rejected rows, empty streams, file metadata, derived streams, and feature-gated views. Doctests on `FletchField` check that unsupported field types fail to compile.
+- `tests/`: integration tests for row-stream append order, nulls, column types, rejected rows, empty streams, file metadata, derived streams, and feature-gated views. Doctests check that unsupported field types, data-carrying enum variants, mistyped comparisons and misspelled columns fail to compile.
 - `examples/`: a runnable DAQ example writing a derived stream, with optional view construction.
 
 ## Data Model
@@ -45,6 +48,7 @@
 - It materializes `run_id` from the storage layout as its first column, followed by the requested columns or every declared column.
 - It applies optional filters (Polars expressions over declared columns), then an optional stable ascending order by declared columns, for DAQ source then ticks. Without an order, rows keep stored order: run, file, then append order.
 - Views never join or align streams on a shared timestamp.
+- `View<T>` reads a derived struct's stream: it checks the schema against `T` at build, applies typed predicates (or raw Polars expressions), orders by typed sort keys, and reads rows back as `T`, nulls as `None`.
 - Views can be collected into a DataFrame or exported to CSV/Parquet.
 
 ## Modulo Workspace Role
