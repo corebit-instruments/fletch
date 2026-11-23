@@ -58,7 +58,19 @@ Run commands from the repository root unless a task is scoped to a specific file
   matching GitHub's default branch. Use `--closes` for completed ETs so GitHub
   links them to the PR and closes them when it merges into `main`.
 
-## Knowledge Base
+## Docs
 
-- Code conventions: `.steering/CODE_CONVENTIONS.md`
-- Project architecture: `.steering/PROJECT_ARCHITECTURE.md`
+When you need to understand an area, or doubt how or why it works, look
+for its doc here first. Update a doc your change contradicts in the same
+change.
+
+- [`docs/CODE_CONVENTIONS.md`](docs/CODE_CONVENTIONS.md): Rust style, data and
+  storage practices, ingestion and view rules, and verification expectations.
+- [`docs/PROJECT_ARCHITECTURE.md`](docs/PROJECT_ARCHITECTURE.md): the crate's
+  modules, data model, row-stream ingestion, the view model and Fletch's role
+  in the Modulo workspace.
+- [`docs/agents/fletch-validation.md`](docs/agents/fletch-validation.md): agent
+  tooling setup, the declared validation checks and their toolchain
+  prerequisites.
+- [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md): where
+  Engineering Tasks live and which Project tracks them.
