@@ -12,41 +12,36 @@
 - `src/lib.rs`: public exports and feature-gated view module.
 - `src/workspace.rs`: `FletchWorkspace`, workspace builders, and local root path handling.
 - `src/config.rs`: storage config, output Parquet path generation, and file-level metadata assembly.
-- `src/stream.rs`: `FletchStreamBuilder`, dynamic `FletchStream`, typed `Stream<T>`, and sparse-row batching.
-- `src/rows.rs`: `FletchRowStreamBuilder` and long-format `FletchRowStream`, which share the sink, config and Arrow builders.
-- `src/types.rs`: `FletchType` trait, borrowed `RowValue` cells, and supported Rust-to-Arrow field mappings.
+- `src/rows.rs`: `FletchRowStreamBuilder` and long-format `FletchRowStream`, the only write API.
+- `src/types.rs`: `FletchType` trait, borrowed `RowValue` cells, and the supported Rust-to-Arrow column builders.
 - `src/sink.rs`: background Arrow-to-Parquet writer and Parquet file metadata writing.
-- `fletch-derive/`: derive macro for static `Stream<T>` schemas.
-- `src/view.rs`: optional Polars LazyFrame scans, metadata/run filtering, source selection, ASOF joins, relative timestamps, and CSV/Parquet exports.
-- `tests/`: integration tests for ingestion ordering, sparse rows, duplicate timestamps, empty streams, file metadata, and feature-gated views.
-- `examples/`: runnable examples for telemetry capture and optional view construction.
+- `src/view.rs`: optional Polars LazyFrame scans of one row stream, run filtering, column filters, ordering and selection, and CSV/Parquet exports.
+- `tests/`: integration tests for row-stream append order, nulls, column types, rejected rows, empty streams, file metadata, and feature-gated views.
+- `examples/`: a runnable DAQ row-stream example with optional view construction.
 
 ## Data Model
 
 - A workspace is a local root folder.
 - A run is identified by a caller-provided `run_id`.
-- A stream maps to one stream name and a dynamic list of registered channels.
-- Wide-stream Arrow schemas start with `timestamp_ns`, followed by nullable telemetry fields. Row-stream schemas hold only their declared nullable columns.
+- A stream maps to one stream name and a list of declared columns.
+- Row-stream Arrow schemas hold only their declared nullable columns; there is no implicit timestamp.
 - Parquet files are written under `runs/{run_id}/{stream_name}/{uuid}.parquet`.
 - Run and user metadata is stored as Parquet file-level key/value metadata.
 
 ## Ingestion Model
 
-- Callers create one or more dynamic streams with `FletchStreamBuilder`, or static streams with `Stream<T>`, write channel values by timestamp, and call `close`.
-- Field writes sharing the same timestamp are coalesced into one pending row.
-- When the timestamp changes, the pending row is committed and may be flushed according to the batch capacity.
-- Before each batch is sent to the sink, rows are sorted by `timestamp_ns`.
-- Row streams append one row per call, flush full batches in append order without sorting, and reject a mismatched row before writing any of it.
+- Callers create row streams with `FletchRowStreamBuilder`, append one row per call with one `RowValue` per declared column, and call `close`.
+- Row streams flush full batches in append order without merging or sorting, and reject a mismatched row before writing any of it.
 - `BackgroundSink` writes batches on a worker thread and writes file-level metadata into the Parquet footer.
 - Empty streams close without creating Parquet files.
 
 ## View Model
 
 - `FletchViewBuilder` is available only with the `view` feature.
-- Views resolve eligible Parquet files from the local root using an explicit run ID, or all runs for single-source views.
-- Each source materializes `run_id` from the storage layout and selects `timestamp_ns`, `run_id`, and requested telemetry columns.
-- Multiple sources require an explicit run ID and are joined with Polars ASOF joins using `timestamp_ns`.
-- Optional relative timestamps are derived per run from the selected rows.
+- A view reads one row stream's Parquet files from the local root, for one run or every run.
+- It materializes `run_id` from the storage layout as its first column, followed by the requested columns or every declared column.
+- It applies optional filters (Polars expressions over declared columns), then an optional stable ascending order by declared columns, for DAQ source then ticks. Without an order, rows keep stored order: run, file, then append order.
+- Views never join or align streams on a shared timestamp.
 - Views can be collected into a DataFrame or exported to CSV/Parquet.
 
 ## Modulo Workspace Role

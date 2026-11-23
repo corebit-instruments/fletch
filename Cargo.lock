@@ -983,21 +983,11 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "arrow",
- "fletch-derive",
  "parquet",
  "polars",
  "tempfile",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "fletch-derive"
-version = "0.2.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

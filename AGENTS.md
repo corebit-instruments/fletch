@@ -23,23 +23,20 @@ Local instructions in this file override shared and workspace instructions.
 
 ## Repository Role
 
-`fletch` is the Rust telemetry logging, Parquet storage, and sensor-fusion
-library for HIL and test-engineering data.
+`fletch` is the Rust telemetry logging and Parquet storage library for HIL and
+test-engineering data, with optional Polars-backed views.
 
-- `FletchStreamBuilder` builds dynamic ingestion streams backed by Apache Arrow builders.
-- `Stream<T>` and `#[derive(FletchSchema)]` provide a typed facade for static schemas.
-- `FletchRowStreamBuilder` builds long-format row streams: declared columns, one row per append, no timestamp key.
+- `FletchRowStreamBuilder` builds long-format row streams backed by Apache Arrow builders: declared columns, one row per append, no timestamp key. It is the only write API.
 - `FletchWorkspace` owns the local root folder and storage layout.
 - Parquet file-level key/value metadata stores run and user-provided metadata.
-- The optional `view` feature enables Polars-backed analytical views and time-aligned joins.
+- The optional `view` feature enables Polars-backed views of one row stream, filtered and ordered by its declared columns.
 
 ## Data Rules
 
-- Keep `timestamp_ns` as the stable leading column in wide (`FletchStream`) telemetry schemas.
 - Keep stream names, storage paths, and file-level metadata aligned with the written Parquet files.
 - Keep Fletch-owned `fletch.*` metadata authoritative over user-provided metadata.
-- Preserve sparse-row semantics in wide streams: same-timestamp field writes coalesce into one row, missing fields remain null, and duplicate field writes keep the latest value.
-- Row streams (`FletchRowStream`) have no implicit `timestamp_ns`: each append is one row, kept in append order, never merged, overwritten or sorted.
+- Row streams (`FletchRowStream`) have only their declared columns: each append is one row, kept in append order, never merged, overwritten or sorted.
+- Views never join or align streams on a shared timestamp; they filter and order by declared columns.
 - Keep local workspace roots as filesystem paths at public boundaries.
 - Keep the Polars view layer behind the `view` feature.
 
@@ -52,7 +49,7 @@ Run commands from the repository root unless a task is scoped to a specific file
 - Test: `cargo test`
 - Test views: `cargo test --features view`
 - Lint: `cargo clippy --all-targets --all-features`
-- Run examples as needed, for example `cargo run --example accelerometer --features view`
+- Run examples as needed, for example `cargo run --example daq_records --features view`
 
 ## Branching and Pull Requests
 

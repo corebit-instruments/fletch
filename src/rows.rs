@@ -1,21 +1,28 @@
 use anyhow::{Result, anyhow};
-use arrow::datatypes::{Field, Schema};
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::config::FletchConfig;
 use crate::sink::BackgroundSink;
-use crate::stream::{ChannelSpec, DEFAULT_BATCH_CAPACITY};
-use crate::types::{ChannelBuilder, FletchType, RowValue};
+use crate::types::{ColumnBuilder, FletchType, RowValue};
 use crate::workspace::FletchWorkspace;
 
+const DEFAULT_BATCH_CAPACITY: usize = 100_000;
+
+struct ColumnSpec {
+    name: String,
+    data_type: DataType,
+    builder_factory: fn(usize) -> ColumnBuilder,
+}
+
 /// Builds a long-format row stream: declared typed columns, one row per
-/// [`FletchRowStream::append`], with no implicit `timestamp_ns` key.
+/// [`FletchRowStream::append`], with no implicit timestamp or other columns.
 pub struct FletchRowStreamBuilder {
     workspace: FletchWorkspace,
     stream_name: String,
-    columns: Vec<ChannelSpec>,
+    columns: Vec<ColumnSpec>,
     metadata: BTreeMap<String, String>,
     batch_capacity: usize,
 }
@@ -38,7 +45,7 @@ impl FletchRowStreamBuilder {
         if self.columns.iter().any(|column| column.name == name) {
             return Err(anyhow!("duplicate column `{}`", name));
         }
-        self.columns.push(ChannelSpec {
+        self.columns.push(ColumnSpec {
             name,
             data_type: T::data_type(),
             builder_factory: T::new_builder,
@@ -106,7 +113,7 @@ impl FletchRowStreamBuilder {
 pub struct FletchRowStream {
     sink: BackgroundSink,
     schema: Arc<Schema>,
-    columns: Vec<ChannelBuilder>,
+    columns: Vec<ColumnBuilder>,
     rows: usize,
     batch_capacity: usize,
 }
@@ -160,11 +167,7 @@ impl FletchRowStream {
         if self.rows == 0 {
             return Ok(());
         }
-        let columns = self
-            .columns
-            .iter_mut()
-            .map(ChannelBuilder::finish)
-            .collect();
+        let columns = self.columns.iter_mut().map(ColumnBuilder::finish).collect();
         let batch = RecordBatch::try_new(self.schema.clone(), columns)?;
         self.rows = 0;
         self.sink.write_batch(batch)

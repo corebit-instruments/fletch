@@ -1,4 +1,3 @@
-use anyhow::{Result, anyhow};
 use arrow::array::{
     ArrayRef, BooleanBuilder, Float32Builder, Float64Builder, Int32Builder, Int64Builder,
     StringBuilder, UInt8Builder, UInt16Builder, UInt32Builder, UInt64Builder,
@@ -6,24 +5,11 @@ use arrow::array::{
 use arrow::datatypes::DataType;
 use std::sync::Arc;
 
-#[derive(Clone, Debug)]
-pub enum FletchValue {
-    Bool(bool),
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    I32(i32),
-    I64(i64),
-    F32(f32),
-    F64(f64),
-    String(String),
-}
-
+/// A Rust type a row-stream column can hold, declared with
+/// [`FletchRowStreamBuilder::column`](crate::FletchRowStreamBuilder::column).
 pub trait FletchType: Sized + Send + Sync + 'static {
     fn data_type() -> DataType;
-    fn new_builder(capacity: usize) -> ChannelBuilder;
-    fn into_value(self) -> FletchValue;
+    fn new_builder(capacity: usize) -> ColumnBuilder;
 }
 
 macro_rules! fletch_type {
@@ -33,12 +19,8 @@ macro_rules! fletch_type {
                 $data_type
             }
 
-            fn new_builder(capacity: usize) -> ChannelBuilder {
-                ChannelBuilder::$variant($builder::with_capacity(capacity))
-            }
-
-            fn into_value(self) -> FletchValue {
-                FletchValue::$variant(self)
+            fn new_builder(capacity: usize) -> ColumnBuilder {
+                ColumnBuilder::$variant($builder::with_capacity(capacity))
             }
         }
     };
@@ -59,16 +41,13 @@ impl FletchType for String {
         DataType::Utf8
     }
 
-    fn new_builder(_capacity: usize) -> ChannelBuilder {
-        ChannelBuilder::String(StringBuilder::new())
-    }
-
-    fn into_value(self) -> FletchValue {
-        FletchValue::String(self)
+    fn new_builder(_capacity: usize) -> ColumnBuilder {
+        ColumnBuilder::String(StringBuilder::new())
     }
 }
 
-pub enum ChannelBuilder {
+/// The Arrow builder behind one row-stream column.
+pub enum ColumnBuilder {
     Bool(BooleanBuilder),
     U8(UInt8Builder),
     U16(UInt16Builder),
@@ -81,32 +60,8 @@ pub enum ChannelBuilder {
     String(StringBuilder),
 }
 
-impl ChannelBuilder {
-    pub fn append(&mut self, value: Option<FletchValue>) -> Result<()> {
-        match (self, value) {
-            (Self::Bool(builder), Some(FletchValue::Bool(value))) => builder.append_value(value),
-            (Self::U8(builder), Some(FletchValue::U8(value))) => builder.append_value(value),
-            (Self::U16(builder), Some(FletchValue::U16(value))) => builder.append_value(value),
-            (Self::U32(builder), Some(FletchValue::U32(value))) => builder.append_value(value),
-            (Self::U64(builder), Some(FletchValue::U64(value))) => builder.append_value(value),
-            (Self::I32(builder), Some(FletchValue::I32(value))) => builder.append_value(value),
-            (Self::I64(builder), Some(FletchValue::I64(value))) => builder.append_value(value),
-            (Self::F32(builder), Some(FletchValue::F32(value))) => builder.append_value(value),
-            (Self::F64(builder), Some(FletchValue::F64(value))) => builder.append_value(value),
-            (Self::String(builder), Some(FletchValue::String(value))) => {
-                builder.append_value(value)
-            }
-            (builder, None) => builder.append_null(),
-            _ => {
-                return Err(anyhow!(
-                    "channel value type does not match registered channel type"
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    pub fn append_null(&mut self) {
+impl ColumnBuilder {
+    fn append_null(&mut self) {
         match self {
             Self::Bool(builder) => builder.append_null(),
             Self::U8(builder) => builder.append_null(),
@@ -121,7 +76,7 @@ impl ChannelBuilder {
         }
     }
 
-    pub fn finish(&mut self) -> ArrayRef {
+    pub(crate) fn finish(&mut self) -> ArrayRef {
         match self {
             Self::Bool(builder) => Arc::new(builder.finish()),
             Self::U8(builder) => Arc::new(builder.finish()),
@@ -194,7 +149,7 @@ impl<'a, T: Into<RowValue<'a>>> From<Option<T>> for RowValue<'a> {
     }
 }
 
-impl ChannelBuilder {
+impl ColumnBuilder {
     /// Whether `value` can be appended to this column: null always can,
     /// otherwise the value's type must be the column's type.
     pub(crate) fn accepts(&self, value: &RowValue<'_>) -> bool {
@@ -214,7 +169,7 @@ impl ChannelBuilder {
         )
     }
 
-    /// Appends a value that [`ChannelBuilder::accepts`] has already checked.
+    /// Appends a value that [`ColumnBuilder::accepts`] has already checked.
     pub(crate) fn append_row_value(&mut self, value: RowValue<'_>) {
         match (self, value) {
             (Self::Bool(builder), RowValue::Bool(value)) => builder.append_value(value),

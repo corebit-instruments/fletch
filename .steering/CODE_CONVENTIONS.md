@@ -7,12 +7,12 @@
 - Prefer explicit domain names for workspaces, runs, streams, storage layout, timestamps, file metadata, and analytical views.
 - Use `anyhow::Result` consistently for the current library surface unless a typed error boundary is introduced across the crate.
 - Keep module boundaries narrow: workspace setup, storage config, dynamic stream ingestion, background sink, file metadata, and optional views should stay separately owned.
-- Add concise comments only for non-obvious Arrow, Parquet, or Polars join behavior.
+- Add concise comments only for non-obvious Arrow, Parquet, or Polars behavior.
 
 ## Data And Storage Practices
 
-- Treat `timestamp_ns` as the stable leading column in wide telemetry schemas. Row streams have only their declared columns.
-- Preserve stream names from dynamic builder names or `FletchSchema` struct identifiers unless a deliberate migration path is added.
+- A row stream's schema is its declared columns, in declaration order, all nullable. Fletch adds no implicit columns.
+- Preserve stream names from builder names unless a deliberate migration path is added.
 - Keep local workspace roots represented as filesystem paths at public boundaries.
 - Preserve the default layout semantics: run, stream, and unique Parquet file names.
 - Sanitize path components before rendering storage layout values.
@@ -22,15 +22,13 @@
 
 ## Ingestion And View Practices
 
-- Keep dynamic streams typed through `FletchType` instead of ad hoc values.
-- Maintain sparse row behavior in wide streams: multiple field writes at the same timestamp produce one row, missing fields remain null, and duplicate field writes at a timestamp use the latest value.
-- Keep wide-stream batches sorted by `timestamp_ns` before writing.
+- Keep row-stream columns typed through `FletchType` and row cells through `RowValue` instead of ad hoc values.
 - Keep row streams in append order: one row per append, no merging, overwriting or sorting, and no partial row written when an append is rejected.
 - Ensure empty streams can close cleanly without writing Parquet files.
 - Keep the Polars-backed view layer behind the `view` feature.
 - Preserve run filtering by `run_id` so views do not accidentally cross runs.
-- Materialize `run_id` in views from storage layout or metadata.
-- Require an explicit `run_id` for multi-source views, then use ASOF joins intentionally for time-aligned streams inside that run.
+- Materialize `run_id` in views from the storage layout.
+- A view reads one row stream. Never join or align streams on a shared timestamp; filter and order by declared columns (for DAQ: source, then ticks), with ties keeping stored order.
 
 ## Verification
 
