@@ -12,12 +12,14 @@
 - `src/lib.rs`: public exports and feature-gated view module.
 - `src/workspace.rs`: `FletchWorkspace`, workspace builders, and local root path handling.
 - `src/config.rs`: storage config, output Parquet path generation, and file-level metadata assembly.
-- `src/rows.rs`: `FletchRowStreamBuilder` and long-format `FletchRowStream`, the only write API.
-- `src/types.rs`: `FletchType` trait, borrowed `RowValue` cells, and the supported Rust-to-Arrow column builders.
+- `src/rows.rs`: `FletchRowStreamBuilder` and long-format `FletchRowStream`, the one write path.
+- `src/schema.rs`: the `FletchSchema` trait and the typed `Stream<T>`/`StreamBuilder<T>` facade over `FletchRowStream`.
+- `src/types.rs`: `FletchType` trait, borrowed `RowValue` cells, `FletchField` (struct field types a derive accepts), and the supported Rust-to-Arrow column builders.
+- `fletch-derive/`: `#[derive(FletchSchema)]`, which declares one column per struct field and appends a value as one row.
 - `src/sink.rs`: background Arrow-to-Parquet writer and Parquet file metadata writing.
 - `src/view.rs`: optional Polars LazyFrame scans of one row stream, run filtering, column filters, ordering and selection, and CSV/Parquet exports.
-- `tests/`: integration tests for row-stream append order, nulls, column types, rejected rows, empty streams, file metadata, and feature-gated views.
-- `examples/`: a runnable DAQ row-stream example with optional view construction.
+- `tests/`: integration tests for row-stream append order, nulls, column types, rejected rows, empty streams, file metadata, derived streams, and feature-gated views. Doctests on `FletchField` check that unsupported field types fail to compile.
+- `examples/`: a runnable DAQ example writing a derived stream, with optional view construction.
 
 ## Data Model
 
@@ -31,6 +33,7 @@
 ## Ingestion Model
 
 - Callers create row streams with `FletchRowStreamBuilder`, append one row per call with one `RowValue` per declared column, and call `close`.
+- Or they derive `FletchSchema` on a struct and use `Stream<T>`: its builder declares one column per field, and `write(&value)` appends the fields as one row of borrowed `RowValue`s through the same `FletchRowStream`.
 - Row streams flush full batches in append order without merging or sorting, and reject a mismatched row before writing any of it.
 - `BackgroundSink` writes batches on a worker thread and writes file-level metadata into the Parquet footer.
 - Empty streams close without creating Parquet files.

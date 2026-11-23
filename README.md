@@ -29,7 +29,9 @@ file-level key/value metadata.
 
 ## Row Streams
 
-Fletch writes long-format row streams. A row stream has the typed columns you
+Fletch writes long-format row streams, declared at runtime with
+`FletchRowStreamBuilder` or from a struct with `#[derive(FletchSchema)]`
+(below). A row stream has the typed columns you
 declare and no implicit timestamp, and each `append` writes exactly one row.
 Rows are written in append order, across batches, and are never merged,
 overwritten or sorted. Records that do not share one clock, such as records
@@ -78,6 +80,53 @@ value's type) before writing anything, so a rejected row leaves the stream
 unchanged. Values are borrowed, strings included, so appending a row does not
 allocate. Supported column types are `bool`, `u8`, `u16`, `u32`, `u64`, `i32`,
 `i64`, `f32`, `f64` and `String`.
+
+## Derived Streams
+
+When the columns are known at compile time, derive `FletchSchema` on a struct
+and write it through `Stream<T>`. Each field is one column, in field order,
+typed by the field; an `Option<T>` field writes null for `None`. There is no
+implicit timestamp: a time column, such as `ticks` below, is a field like any
+other. Each `write` appends one struct value as one row, borrowing its fields.
+
+```rust
+use fletch::{FletchSchema, FletchWorkspace, Stream};
+
+#[derive(FletchSchema)]
+struct DaqRecord {
+    source: u8,
+    channel: String,
+    ticks: u64,
+    raw: i64,
+    value: Option<f64>,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let workspace = FletchWorkspace::builder()
+        .root("C:/fletch_warehouse")
+        .build()?;
+
+    let mut records = Stream::<DaqRecord>::builder(&workspace, "DaqRecords")
+        .metadata("modulo.test_id", "daq-v1")
+        .build("run_001")
+        .await?;
+    records.write(&DaqRecord {
+        source: 1,
+        channel: "ain0".to_string(),
+        ticks: 48_000,
+        raw: 1024,
+        value: None,
+    })?;
+    records.close()?;
+
+    Ok(())
+}
+```
+
+Field types are the column types above, or an `Option` of one; any other field
+type is a compile error. A derived stream is a row stream underneath, with the
+same layout, metadata and append-order rules.
 
 ## Views
 

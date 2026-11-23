@@ -187,3 +187,69 @@ impl ColumnBuilder {
         }
     }
 }
+
+/// A struct field type that `#[derive(FletchSchema)]` can turn into a
+/// row-stream column: every [`FletchType`], and `Option` of one, which writes
+/// null for `None`.
+///
+/// A field of any other type fails to compile:
+///
+/// ```compile_fail
+/// #[derive(fletch::FletchSchema)]
+/// struct Unsupported {
+///     at: std::time::Instant,
+/// }
+/// ```
+///
+/// Nor does an `Option` of an `Option`:
+///
+/// ```compile_fail
+/// #[derive(fletch::FletchSchema)]
+/// struct Nested {
+///     source: Option<Option<u8>>,
+/// }
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a supported fletch column type",
+    label = "unsupported column type",
+    note = "supported field types are bool, u8, u16, u32, u64, i32, i64, f32, f64, String, and Option of one of these"
+)]
+pub trait FletchField {
+    /// The column's type; an `Option<T>` field declares a `T` column.
+    type Column: FletchType;
+
+    /// This field's value as one row cell, borrowed from the field.
+    fn row_value(&self) -> RowValue<'_>;
+}
+
+macro_rules! fletch_field {
+    ($($ty:ty),*) => {
+        $(
+            impl FletchField for $ty {
+                type Column = $ty;
+
+                fn row_value(&self) -> RowValue<'_> {
+                    (*self).into()
+                }
+            }
+        )*
+    };
+}
+
+fletch_field!(bool, u8, u16, u32, u64, i32, i64, f32, f64);
+
+impl FletchField for String {
+    type Column = String;
+
+    fn row_value(&self) -> RowValue<'_> {
+        RowValue::Str(self)
+    }
+}
+
+impl<T: FletchType + FletchField<Column = T>> FletchField for Option<T> {
+    type Column = T;
+
+    fn row_value(&self) -> RowValue<'_> {
+        self.as_ref().map_or(RowValue::Null, FletchField::row_value)
+    }
+}

@@ -26,7 +26,9 @@ Local instructions in this file override shared and workspace instructions.
 `fletch` is the Rust telemetry logging and Parquet storage library for HIL and
 test-engineering data, with optional Polars-backed views.
 
-- `FletchRowStreamBuilder` builds long-format row streams backed by Apache Arrow builders: declared columns, one row per append, no timestamp key. It is the only write API.
+- Fletch writes long-format row streams only, backed by Apache Arrow builders: declared columns, one row per append, no timestamp key.
+- `FletchRowStreamBuilder` declares a row stream's columns at runtime; `FletchRowStream::append` writes one row of `RowValue`s.
+- `#[derive(FletchSchema)]` (from `fletch-derive`) declares one column per struct field, and `Stream<T>::write` appends one struct value as one row on top of `FletchRowStream`.
 - `FletchWorkspace` owns the local root folder and storage layout.
 - Parquet file-level key/value metadata stores run and user-provided metadata.
 - The optional `view` feature enables Polars-backed views of one row stream, filtered and ordered by its declared columns.
@@ -67,8 +69,8 @@ change.
 - [`docs/CODE_CONVENTIONS.md`](docs/CODE_CONVENTIONS.md): Rust style, data and
   storage practices, ingestion and view rules, and verification expectations.
 - [`docs/PROJECT_ARCHITECTURE.md`](docs/PROJECT_ARCHITECTURE.md): the crate's
-  modules, data model, row-stream ingestion, the view model and Fletch's role
-  in the Modulo workspace.
+  modules, data model, row-stream ingestion (dynamic and derived), the view
+  model and Fletch's role in the Modulo workspace.
 - [`docs/agents/fletch-validation.md`](docs/agents/fletch-validation.md): agent
   tooling setup, the declared validation checks and their toolchain
   prerequisites.

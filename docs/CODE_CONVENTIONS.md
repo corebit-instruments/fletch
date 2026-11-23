@@ -12,7 +12,7 @@
 ## Data And Storage Practices
 
 - A row stream's schema is its declared columns, in declaration order, all nullable. Fletch adds no implicit columns.
-- Preserve stream names from builder names unless a deliberate migration path is added.
+- Preserve stream names from builder names unless a deliberate migration path is added. Derived streams take their name from `Stream::<T>::builder`, not from the struct.
 - Keep local workspace roots represented as filesystem paths at public boundaries.
 - Preserve the default layout semantics: run, stream, and unique Parquet file names.
 - Sanitize path components before rendering storage layout values.
@@ -23,6 +23,7 @@
 ## Ingestion And View Practices
 
 - Keep row-stream columns typed through `FletchType` and row cells through `RowValue` instead of ad hoc values.
+- Keep `Stream<T>` a typed facade over `FletchRowStream`, not a second write path: a derived struct declares one column per field in field order and writes one row per value, borrowing its fields. Supported field types are the `FletchType`s and `Option` of one (`FletchField`); anything else must fail to compile.
 - Keep row streams in append order: one row per append, no merging, overwriting or sorting, and no partial row written when an append is rejected.
 - Ensure empty streams can close cleanly without writing Parquet files.
 - Keep the Polars-backed view layer behind the `view` feature.
