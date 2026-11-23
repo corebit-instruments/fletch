@@ -5,131 +5,111 @@ use std::path::{Path, PathBuf};
 
 use crate::workspace::{FletchWorkspace, validate_path_component};
 
-struct ViewSource {
-    stream_name: String,
-    columns: Vec<String>,
-}
-
 struct ViewFile {
     path: PathBuf,
     run_id: String,
 }
 
+/// Builds a view of one row stream: its rows from one run or every run,
+/// optionally filtered, ordered and narrowed by its declared columns.
+///
+/// A view never joins or aligns streams: row streams have no shared clock.
+/// Each row carries a `run_id` column, taken from the storage layout.
 pub struct FletchViewBuilder<'a> {
     workspace: &'a FletchWorkspace,
+    stream_name: String,
     run_id: Option<String>,
-    sources: Vec<ViewSource>,
-    add_relative_timestamp: bool,
+    columns: Option<Vec<String>>,
+    filters: Vec<Expr>,
+    order_by: Vec<String>,
 }
 
 impl<'a> FletchViewBuilder<'a> {
-    pub fn new(workspace: &'a FletchWorkspace) -> Self {
+    pub fn new(workspace: &'a FletchWorkspace, stream_name: impl Into<String>) -> Self {
         Self {
             workspace,
+            stream_name: stream_name.into(),
             run_id: None,
-            sources: Vec::new(),
-            add_relative_timestamp: false,
+            columns: None,
+            filters: Vec::new(),
+            order_by: Vec::new(),
         }
     }
 
+    /// Reads only this run. Without it the view reads every run.
     pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
         self.run_id = Some(run_id.into());
         self
     }
 
-    pub fn add_source(mut self, stream_name: &str, columns: &[&str]) -> Self {
-        self.sources.push(ViewSource {
-            stream_name: stream_name.to_string(),
-            columns: columns.iter().map(|column| column.to_string()).collect(),
-        });
+    /// Keeps only these columns, after `run_id`. Without it the view keeps
+    /// every declared column.
+    pub fn columns(mut self, columns: &[&str]) -> Self {
+        self.columns = Some(columns.iter().map(|column| column.to_string()).collect());
         self
     }
 
-    pub fn with_relative_timestamp(mut self) -> Self {
-        self.add_relative_timestamp = true;
+    /// Keeps only rows matching `predicate`. Several filters must all match.
+    pub fn filter(mut self, predicate: Expr) -> Self {
+        self.filters.push(predicate);
         self
     }
 
-    pub async fn build(self) -> Result<FletchView> {
-        if self.sources.is_empty() {
-            return Err(anyhow!("at least one source must be added to the view"));
+    /// Orders rows by these columns, ascending, in turn. Rows that tie keep
+    /// their stored order, which within one file is append order. Without it
+    /// rows keep their stored order: run by run, then file by file.
+    pub fn order_by(mut self, columns: &[&str]) -> Self {
+        self.order_by = columns.iter().map(|column| column.to_string()).collect();
+        self
+    }
+
+    pub fn build(self) -> Result<FletchView> {
+        let mut frame = scan_stream(self.workspace, self.run_id.as_deref(), &self.stream_name)?;
+
+        for predicate in self.filters {
+            frame = frame.filter(predicate);
         }
-        if self.run_id.is_none() && self.sources.len() > 1 {
-            return Err(anyhow!(
-                "run_id is required when building a view from multiple sources"
-            ));
+        if !self.order_by.is_empty() {
+            frame = frame.sort(
+                self.order_by,
+                SortMultipleOptions::default().with_maintain_order(true),
+            );
         }
+        let rest = match self.columns {
+            Some(columns) => columns.iter().map(|column| col(column.as_str())).collect(),
+            None => vec![all().exclude_cols(["run_id"]).as_expr()],
+        };
+        frame = frame.select([vec![col("run_id")], rest].concat());
 
-        let mut base_lf: Option<LazyFrame> = None;
-
-        for source in self.sources {
-            let file_paths = parquet_files_for_source(
-                self.workspace.root(),
-                self.run_id.as_deref(),
-                &source.stream_name,
-            )?;
-            if file_paths.is_empty() {
-                return Err(anyhow!(
-                    "no parquet files found for stream {}",
-                    source.stream_name
-                ));
-            }
-
-            let mut lfs = Vec::new();
-            for view_file in file_paths {
-                let scan_args = ScanArgsParquet {
-                    n_rows: None,
-                    ..Default::default()
-                };
-                let lf = LazyFrame::scan_parquet(
-                    PlRefPath::new(view_file.path.to_string_lossy().as_ref()),
-                    scan_args,
-                )?
-                .with_columns([lit(view_file.run_id).alias("run_id")]);
-                lfs.push(lf);
-            }
-
-            let mut lf = concat(lfs, Default::default())?;
-            let mut selection = vec![col("timestamp_ns"), col("run_id")];
-            for column in source.columns {
-                selection.push(col(&column));
-            }
-            lf = lf.select(selection);
-            lf = lf.sort(["timestamp_ns", "run_id"], Default::default());
-
-            if let Some(existing_lf) = base_lf {
-                let asof_options = AsOfOptions {
-                    strategy: AsofStrategy::Backward,
-                    allow_eq: true,
-                    ..Default::default()
-                };
-                let join_args = JoinArgs::new(JoinType::AsOf(Box::new(asof_options)));
-                base_lf = Some(existing_lf.join(
-                    lf,
-                    [col("timestamp_ns")],
-                    [col("timestamp_ns")],
-                    join_args,
-                ));
-            } else {
-                base_lf = Some(lf);
-            }
-        }
-
-        let mut final_lf = base_lf.expect("sources were checked as non-empty");
-
-        if self.add_relative_timestamp {
-            final_lf = final_lf.with_columns([(col("timestamp_ns")
-                - col("timestamp_ns").min().over(["run_id"]))
-            .alias("relative_time_ns")]);
-        }
-
-        Ok(FletchView {
-            lazy_frame: final_lf,
-        })
+        Ok(FletchView { lazy_frame: frame })
     }
 }
 
-fn parquet_files_for_source(
+/// Scans every Parquet file of one stream, for one run or every run, and adds
+/// a `run_id` column from the storage layout.
+pub(crate) fn scan_stream(
+    workspace: &FletchWorkspace,
+    run_id: Option<&str>,
+    stream_name: &str,
+) -> Result<LazyFrame> {
+    let files = parquet_files_for_stream(workspace.root(), run_id, stream_name)?;
+    if files.is_empty() {
+        return Err(anyhow!("no parquet files found for stream {}", stream_name));
+    }
+
+    let mut frames = Vec::with_capacity(files.len());
+    for file in files {
+        let frame = LazyFrame::scan_parquet(
+            PlRefPath::new(file.path.to_string_lossy().as_ref()),
+            ScanArgsParquet::default(),
+        )?
+        .with_columns([lit(file.run_id).alias("run_id")]);
+        frames.push(frame);
+    }
+    Ok(concat(frames, Default::default())?)
+}
+
+fn parquet_files_for_stream(
     root: &Path,
     run_id: Option<&str>,
     stream_name: &str,

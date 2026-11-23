@@ -84,7 +84,7 @@ async fn rows_keep_append_order_without_merging_or_sorting() -> Result<()> {
         .await?;
 
     // Two sources on their own clocks, interleaved, with repeated and
-    // decreasing ticks: a wide stream would merge and sort these.
+    // decreasing ticks: every row is kept as appended.
     let rows = [
         (1_u8, 500_u64, 1.0),
         (2, 10, 2.0),
@@ -250,7 +250,7 @@ async fn every_supported_column_type_round_trips() -> Result<()> {
 }
 
 #[tokio::test]
-async fn file_metadata_and_layout_match_wide_streams() -> Result<()> {
+async fn file_metadata_and_layout_follow_the_workspace() -> Result<()> {
     let dir = tempdir()?;
     let run_id = "run_meta";
     let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
@@ -344,6 +344,12 @@ async fn builder_rejects_invalid_definitions() -> Result<()> {
         .build("../escape")
         .await;
     assert!(unsafe_run.is_err());
+
+    let unsafe_stream = FletchRowStreamBuilder::new(&workspace, "../DaqRecords")
+        .column::<u8>("source")?
+        .build("run_001")
+        .await;
+    assert!(unsafe_stream.is_err());
     Ok(())
 }
 

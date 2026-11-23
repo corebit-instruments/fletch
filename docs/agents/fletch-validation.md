@@ -49,7 +49,7 @@ These are the repository's existing format, default-test, optional-view, and
 lint commands. `--locked` preserves dependency resolution; formatting checks
 do not rewrite files. The default feature set keeps Polars disabled; the view
 checks exercise the optional Polars layer. Clippy includes the view-dependent
-accelerometer example. Tests use temporary filesystem workspaces.
+`daq_records` example. Tests use temporary filesystem workspaces.
 
 Prerequisites are a Rust toolchain supporting edition 2024, rustfmt, Clippy,
 the native host linker/SDK, and access to the crates resolved by `Cargo.lock`.
@@ -67,7 +67,7 @@ No repository toolchain override, dependency update or registry patch is part
 of this adoption.
 Fletch declares no embedded target or device runner. These commands exercise
 a local library and do not require a connected Modulo board. They preserve
-telemetry schema, sparse-row behavior, storage paths, metadata ownership and
+row-stream schema and append order, storage paths, metadata ownership and
 feature boundaries.
 
 Fresh live harness invocation/resume, clean installation/update on every

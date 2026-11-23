@@ -6,24 +6,11 @@ use arrow::array::{
 use arrow::datatypes::DataType;
 use std::sync::Arc;
 
-#[derive(Clone, Debug)]
-pub enum FletchValue {
-    Bool(bool),
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    I32(i32),
-    I64(i64),
-    F32(f32),
-    F64(f64),
-    String(String),
-}
-
+/// A Rust type a row-stream column can hold, declared with
+/// [`FletchRowStreamBuilder::column`](crate::FletchRowStreamBuilder::column).
 pub trait FletchType: Sized + Send + Sync + 'static {
     fn data_type() -> DataType;
-    fn new_builder(capacity: usize) -> ChannelBuilder;
-    fn into_value(self) -> FletchValue;
+    fn new_builder(capacity: usize) -> ColumnBuilder;
 }
 
 macro_rules! fletch_type {
@@ -33,12 +20,8 @@ macro_rules! fletch_type {
                 $data_type
             }
 
-            fn new_builder(capacity: usize) -> ChannelBuilder {
-                ChannelBuilder::$variant($builder::with_capacity(capacity))
-            }
-
-            fn into_value(self) -> FletchValue {
-                FletchValue::$variant(self)
+            fn new_builder(capacity: usize) -> ColumnBuilder {
+                ColumnBuilder::$variant($builder::with_capacity(capacity))
             }
         }
     };
@@ -59,16 +42,13 @@ impl FletchType for String {
         DataType::Utf8
     }
 
-    fn new_builder(_capacity: usize) -> ChannelBuilder {
-        ChannelBuilder::String(StringBuilder::new())
-    }
-
-    fn into_value(self) -> FletchValue {
-        FletchValue::String(self)
+    fn new_builder(_capacity: usize) -> ColumnBuilder {
+        ColumnBuilder::String(StringBuilder::new())
     }
 }
 
-pub enum ChannelBuilder {
+/// The Arrow builder behind one row-stream column.
+pub enum ColumnBuilder {
     Bool(BooleanBuilder),
     U8(UInt8Builder),
     U16(UInt16Builder),
@@ -81,32 +61,8 @@ pub enum ChannelBuilder {
     String(StringBuilder),
 }
 
-impl ChannelBuilder {
-    pub fn append(&mut self, value: Option<FletchValue>) -> Result<()> {
-        match (self, value) {
-            (Self::Bool(builder), Some(FletchValue::Bool(value))) => builder.append_value(value),
-            (Self::U8(builder), Some(FletchValue::U8(value))) => builder.append_value(value),
-            (Self::U16(builder), Some(FletchValue::U16(value))) => builder.append_value(value),
-            (Self::U32(builder), Some(FletchValue::U32(value))) => builder.append_value(value),
-            (Self::U64(builder), Some(FletchValue::U64(value))) => builder.append_value(value),
-            (Self::I32(builder), Some(FletchValue::I32(value))) => builder.append_value(value),
-            (Self::I64(builder), Some(FletchValue::I64(value))) => builder.append_value(value),
-            (Self::F32(builder), Some(FletchValue::F32(value))) => builder.append_value(value),
-            (Self::F64(builder), Some(FletchValue::F64(value))) => builder.append_value(value),
-            (Self::String(builder), Some(FletchValue::String(value))) => {
-                builder.append_value(value)
-            }
-            (builder, None) => builder.append_null(),
-            _ => {
-                return Err(anyhow!(
-                    "channel value type does not match registered channel type"
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    pub fn append_null(&mut self) {
+impl ColumnBuilder {
+    fn append_null(&mut self) {
         match self {
             Self::Bool(builder) => builder.append_null(),
             Self::U8(builder) => builder.append_null(),
@@ -121,7 +77,7 @@ impl ChannelBuilder {
         }
     }
 
-    pub fn finish(&mut self) -> ArrayRef {
+    pub(crate) fn finish(&mut self) -> ArrayRef {
         match self {
             Self::Bool(builder) => Arc::new(builder.finish()),
             Self::U8(builder) => Arc::new(builder.finish()),
@@ -194,7 +150,7 @@ impl<'a, T: Into<RowValue<'a>>> From<Option<T>> for RowValue<'a> {
     }
 }
 
-impl ChannelBuilder {
+impl ColumnBuilder {
     /// Whether `value` can be appended to this column: null always can,
     /// otherwise the value's type must be the column's type.
     pub(crate) fn accepts(&self, value: &RowValue<'_>) -> bool {
@@ -214,7 +170,7 @@ impl ChannelBuilder {
         )
     }
 
-    /// Appends a value that [`ChannelBuilder::accepts`] has already checked.
+    /// Appends a value that [`ColumnBuilder::accepts`] has already checked.
     pub(crate) fn append_row_value(&mut self, value: RowValue<'_>) {
         match (self, value) {
             (Self::Bool(builder), RowValue::Bool(value)) => builder.append_value(value),
@@ -229,6 +185,119 @@ impl ChannelBuilder {
             (Self::String(builder), RowValue::Str(value)) => builder.append_value(value),
             (builder, RowValue::Null) => builder.append_null(),
             _ => unreachable!("row value type is checked before it is appended"),
+        }
+    }
+}
+
+/// A struct field type that `#[derive(FletchSchema)]` can turn into a
+/// row-stream column: every [`FletchType`], and `Option` of one, which writes
+/// null for `None`.
+///
+/// A field of any other type fails to compile:
+///
+/// ```compile_fail
+/// #[derive(fletch::FletchSchema)]
+/// struct Unsupported {
+///     at: std::time::Instant,
+/// }
+/// ```
+///
+/// Nor does an `Option` of an `Option`:
+///
+/// ```compile_fail
+/// #[derive(fletch::FletchSchema)]
+/// struct Nested {
+///     source: Option<Option<u8>>,
+/// }
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a supported fletch column type",
+    label = "unsupported column type",
+    note = "supported field types are bool, u8, u16, u32, u64, i32, i64, f32, f64, String, and Option of one of these"
+)]
+pub trait FletchField {
+    /// The column's type; an `Option<T>` field declares a `T` column.
+    type Column: FletchType;
+
+    /// This field's value as one row cell, borrowed from the field.
+    fn row_value(&self) -> RowValue<'_>;
+
+    /// Reads this field from a cell of `column`. A null is `None` for an
+    /// `Option` field and an error otherwise.
+    fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+fn null_field(column: &str) -> anyhow::Error {
+    anyhow!("column `{column}` holds a null, but its field is not an `Option`")
+}
+
+fn mismatched_field(column: &str, expected: &str, value: RowValue<'_>) -> anyhow::Error {
+    anyhow!("column `{column}` expects {expected}, got {value:?}")
+}
+
+macro_rules! fletch_field {
+    ($($ty:ty => $variant:ident),*) => {
+        $(
+            impl FletchField for $ty {
+                type Column = $ty;
+
+                fn row_value(&self) -> RowValue<'_> {
+                    (*self).into()
+                }
+
+                fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self> {
+                    match value {
+                        RowValue::$variant(value) => Ok(value),
+                        RowValue::Null => Err(null_field(column)),
+                        other => Err(mismatched_field(column, stringify!($ty), other)),
+                    }
+                }
+            }
+        )*
+    };
+}
+
+fletch_field!(
+    bool => Bool,
+    u8 => U8,
+    u16 => U16,
+    u32 => U32,
+    u64 => U64,
+    i32 => I32,
+    i64 => I64,
+    f32 => F32,
+    f64 => F64
+);
+
+impl FletchField for String {
+    type Column = String;
+
+    fn row_value(&self) -> RowValue<'_> {
+        RowValue::Str(self)
+    }
+
+    fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self> {
+        match value {
+            RowValue::Str(value) => Ok(value.to_string()),
+            RowValue::Null => Err(null_field(column)),
+            other => Err(mismatched_field(column, "String", other)),
+        }
+    }
+}
+
+impl<T: FletchType + FletchField<Column = T>> FletchField for Option<T> {
+    type Column = T;
+
+    fn row_value(&self) -> RowValue<'_> {
+        self.as_ref().map_or(RowValue::Null, FletchField::row_value)
+    }
+
+    fn from_row_value(value: RowValue<'_>, column: &str) -> Result<Self> {
+        match value {
+            RowValue::Null => Ok(None),
+            value => T::from_row_value(value, column).map(Some),
         }
     }
 }

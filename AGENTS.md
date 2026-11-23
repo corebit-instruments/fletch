@@ -23,23 +23,25 @@ Local instructions in this file override shared and workspace instructions.
 
 ## Repository Role
 
-`fletch` is the Rust telemetry logging, Parquet storage, and sensor-fusion
-library for HIL and test-engineering data.
+`fletch` is the Rust telemetry logging and Parquet storage library for HIL and
+test-engineering data, with optional Polars-backed views.
 
-- `FletchStreamBuilder` builds dynamic ingestion streams backed by Apache Arrow builders.
-- `Stream<T>` and `#[derive(FletchSchema)]` provide a typed facade for static schemas.
-- `FletchRowStreamBuilder` builds long-format row streams: declared columns, one row per append, no timestamp key.
+- Fletch writes long-format row streams only, backed by Apache Arrow builders: declared columns, one row per append, no timestamp key.
+- `FletchRowStreamBuilder` declares a row stream's columns at runtime; `FletchRowStream::append` writes one row of `RowValue`s.
+- `#[derive(FletchSchema)]` (from `fletch-derive`) declares one column per struct field, generates a typed `Column<T>` handle per field, and `Stream<T>::write` appends one struct value as one row on top of `FletchRowStream`. `#[fletch(stream = "Name")]` puts the stream name on the type.
+- `#[derive(FletchEnum)]` makes a fieldless enum a column type, stored as a string column of variant names (`rename`, `rename_all`).
 - `FletchWorkspace` owns the local root folder and storage layout.
 - Parquet file-level key/value metadata stores run and user-provided metadata.
-- The optional `view` feature enables Polars-backed analytical views and time-aligned joins.
+- The optional `view` feature enables Polars-backed views of one row stream, filtered and ordered by its declared columns: string-based `FletchViewBuilder` for any stream, and typed `View<T>` with typed predicates that reads rows back as `T`.
 
 ## Data Rules
 
-- Keep `timestamp_ns` as the stable leading column in wide (`FletchStream`) telemetry schemas.
 - Keep stream names, storage paths, and file-level metadata aligned with the written Parquet files.
 - Keep Fletch-owned `fletch.*` metadata authoritative over user-provided metadata.
-- Preserve sparse-row semantics in wide streams: same-timestamp field writes coalesce into one row, missing fields remain null, and duplicate field writes keep the latest value.
-- Row streams (`FletchRowStream`) have no implicit `timestamp_ns`: each append is one row, kept in append order, never merged, overwritten or sorted.
+- Row streams (`FletchRowStream`) have only their declared columns: each append is one row, kept in append order, never merged, overwritten or sorted.
+- Views never join or align streams on a shared timestamp; they filter and order by declared columns.
+- Enums are stored as strings holding the variant's name, never as integers.
+- A typed view checks the stream's schema against `T` once at build; typed reads fail on a null in a non-`Option` field or an unknown enum name, naming the column.
 - Keep local workspace roots as filesystem paths at public boundaries.
 - Keep the Polars view layer behind the `view` feature.
 
@@ -52,7 +54,7 @@ Run commands from the repository root unless a task is scoped to a specific file
 - Test: `cargo test`
 - Test views: `cargo test --features view`
 - Lint: `cargo clippy --all-targets --all-features`
-- Run examples as needed, for example `cargo run --example accelerometer --features view`
+- Run examples as needed, for example `cargo run --example daq_records --features view`
 
 ## Branching and Pull Requests
 
@@ -61,7 +63,20 @@ Run commands from the repository root unless a task is scoped to a specific file
   matching GitHub's default branch. Use `--closes` for completed ETs so GitHub
   links them to the PR and closes them when it merges into `main`.
 
-## Knowledge Base
+## Docs
 
-- Code conventions: `.steering/CODE_CONVENTIONS.md`
-- Project architecture: `.steering/PROJECT_ARCHITECTURE.md`
+When you need to understand an area, or doubt how or why it works, look
+for its doc here first. Update a doc your change contradicts in the same
+change.
+
+- [`docs/CODE_CONVENTIONS.md`](docs/CODE_CONVENTIONS.md): Rust style, data and
+  storage practices, ingestion and view rules, and verification expectations.
+- [`docs/PROJECT_ARCHITECTURE.md`](docs/PROJECT_ARCHITECTURE.md): the crate's
+  modules, data model, row-stream ingestion (dynamic and derived, enums
+  included), the view model (string-based and typed) and Fletch's role in the
+  Modulo workspace.
+- [`docs/agents/fletch-validation.md`](docs/agents/fletch-validation.md): agent
+  tooling setup, the declared validation checks and their toolchain
+  prerequisites.
+- [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md): where
+  Engineering Tasks live and which Project tracks them.
