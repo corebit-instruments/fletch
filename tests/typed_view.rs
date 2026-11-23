@@ -5,7 +5,7 @@ use fletch::{
     FletchEnum, FletchRowStreamBuilder, FletchSchema, FletchViewBuilder, FletchWorkspace, Stream,
     View,
 };
-use polars::prelude::{col, lit};
+use polars::prelude::{IntoLazy, col, lit};
 use tempfile::tempdir;
 
 #[derive(Clone, Copy, Debug, PartialEq, FletchEnum)]
@@ -405,7 +405,6 @@ struct Floats {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "polars cannot read parquet 60's IEEE_754_TOTAL_ORDER column order on float columns (pola-rs/polars#27893); re-enable with corebit-instruments/fletch#11"]
 async fn float_types_round_trip_through_a_typed_view() -> Result<()> {
     let dir = tempdir()?;
     let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
@@ -434,5 +433,127 @@ async fn float_types_round_trip_through_a_typed_view() -> Result<()> {
         .build()?
         .rows()?;
     assert_eq!(rows, written);
+    Ok(())
+}
+
+#[derive(Debug, FletchSchema)]
+#[fletch(stream = "FloatShapes")]
+struct FloatShapes {
+    gain: f32,
+    value: f64,
+    maybe_gain: Option<f32>,
+    maybe_value: Option<f64>,
+    nan_only: f64,
+}
+
+/// Bit patterns, so NaN compares equal to itself and -0.0 differs from 0.0.
+type ShapeBits = (u32, u64, Option<u32>, Option<u64>, u64);
+
+fn shape_bits(row: &FloatShapes) -> ShapeBits {
+    (
+        row.gain.to_bits(),
+        row.value.to_bits(),
+        row.maybe_gain.map(f32::to_bits),
+        row.maybe_value.map(f64::to_bits),
+        row.nan_only.to_bits(),
+    )
+}
+
+fn float_shapes() -> Vec<FloatShapes> {
+    let shapes_f32 = [
+        0.5,
+        -0.0,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::MIN,
+        f32::MAX,
+        f32::MIN_POSITIVE,
+    ];
+    let shapes_f64 = [
+        -2.25,
+        0.0,
+        f64::NAN,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::MAX,
+        f64::MIN,
+        f64::EPSILON,
+    ];
+    shapes_f32
+        .into_iter()
+        .zip(shapes_f64)
+        .enumerate()
+        .map(|(i, (gain, value))| FloatShapes {
+            gain,
+            value,
+            maybe_gain: (i % 2 == 0).then_some(gain),
+            maybe_value: (i % 3 != 0).then_some(value),
+            nan_only: f64::NAN,
+        })
+        .collect()
+}
+
+/// Regression for corebit-instruments/fletch#11: Parquet 60 marks float
+/// columns with the IEEE 754 total order, which Polars could not read.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_float_shape_reads_back_through_string_and_typed_views() -> Result<()> {
+    let dir = tempdir()?;
+    let workspace = FletchWorkspace::builder().root(dir.path()).build()?;
+    let written = float_shapes();
+    let mut stream = Stream::<FloatShapes>::builder(&workspace)
+        .build("run_a")
+        .await?;
+    for row in &written {
+        stream.write(row)?;
+    }
+    stream.close()?;
+    let expected = written.iter().map(shape_bits).collect::<Vec<_>>();
+
+    let rows = View::<FloatShapes>::builder(&workspace)
+        .run_id("run_a")
+        .build()?
+        .rows()?;
+    assert_eq!(rows.iter().map(shape_bits).collect::<Vec<_>>(), expected);
+
+    let df = FletchViewBuilder::new(&workspace, "FloatShapes")
+        .run_id("run_a")
+        .build()?
+        .collect()?;
+    let gains = df.column("gain")?.f32()?;
+    let values = df.column("value")?.f64()?;
+    let maybe_gains = df.column("maybe_gain")?.f32()?;
+    let maybe_values = df.column("maybe_value")?.f64()?;
+    let nan_only = df.column("nan_only")?.f64()?;
+    let read = (0..df.height())
+        .map(|i| {
+            (
+                gains.get(i).unwrap().to_bits(),
+                values.get(i).unwrap().to_bits(),
+                maybe_gains.get(i).map(f32::to_bits),
+                maybe_values.get(i).map(f64::to_bits),
+                nan_only.get(i).unwrap().to_bits(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(read, expected);
+
+    // Filters on float columns, which Polars may push down to the column
+    // statistics, select the same rows as filtering the collected frame.
+    for predicate in [
+        col("value").gt(lit(1.0e300)),
+        col("gain").lt_eq(lit(0.0_f32)),
+        col("nan_only").gt(lit(0.0)),
+        col("nan_only").is_nan(),
+        col("maybe_value").is_not_null(),
+    ] {
+        let pushed = FletchViewBuilder::new(&workspace, "FloatShapes")
+            .run_id("run_a")
+            .filter(predicate.clone())
+            .build()?
+            .collect()?;
+        let in_memory = df.clone().lazy().filter(predicate.clone()).collect()?;
+        assert!(pushed.equals_missing(&in_memory), "{predicate:?}");
+    }
     Ok(())
 }
